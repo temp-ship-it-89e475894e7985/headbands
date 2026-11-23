@@ -20,6 +20,7 @@ The host can change the turn timer, or switch it off, in the lobby or during a g
 - Click or tap a player to zoom in on their face. Your mannequin's head peers in and your name tag says who you're looking at, so everyone can see it.
 - Tap Yes, No or Maybe to answer the asking player, or send a quick reaction; it pops up above your head.
 - Keep private notes during a round (only you can see them).
+- The winner of each game can paint a message on the wall; the last three stay up for the next rounds.
 
 ## Good to know
 - No accounts or downloads. It works in any modern browser on phones and computers.

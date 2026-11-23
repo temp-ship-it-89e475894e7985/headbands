@@ -247,6 +247,9 @@
       turnsTaken: {},               // id -> number of turns used
       results: [],                  // [{ id, how: 'got'|'gaveup'|'unfinished', turns }]
       event: { id: 0, text: '', kind: '' },
+      graffiti: [],                 // winners' messages on the wall [{ id, d, by }]
+      lastWinner: null,
+      wallDone: true,
     };
   }
 
@@ -461,6 +464,10 @@
     for (const id of st.order) if (!H.done(id)) st.results.push({ id, how: 'unfinished', turns: st.turnsTaken[id] || 0 });
     st.phase = 'over';
     st.turnId = null; st.turnEndsAt = 0;
+    const firstGot = st.results.find((r) => r.how === 'got');
+    st.lastWinner = firstGot ? firstGot.id : null;
+    st.wallDone = !firstGot;
+    st.graffiti = st.graffiti || [];
     H.event(endedEarly ? 'The host ended the game' : 'Everyone has finished', 'over');
   }
 
@@ -486,6 +493,15 @@
       const g = cleanGear(msg);
       if (g.style) me.style = g.style;
       if (g.color) me.color = g.color;
+    } else if (a === 'wall' && pid === st.lastWinner && !st.wallDone && (st.phase === 'over' || st.phase === 'lobby')) {
+      st.wallDone = true;
+      if (!msg.skip) {
+        const d = window.Draw.sanitize(msg.drawing);
+        if (d) {
+          st.graffiti = (st.graffiti || []).concat([{ id: 'g' + now().toString(36), d, by: me.name }]).slice(-3);
+          H.event(`${me.name} wrote on the wall`, 'join');
+        }
+      }
     } else if (a === 'kick' && isHost && st.phase === 'lobby') {
       const p = H.player(msg.target);
       if (!p || p.isHost) return;
@@ -503,6 +519,7 @@
       st.order = shuffle(ids);
       st.players.forEach((p) => { p.playing = ids.includes(p.id); });
       st.phase = 'picking';
+      st.wallDone = true;
       H.event('Time to draw', 'start');
     } else if (a === 'word' && st.phase === 'picking') {
       // a player picks for their target; the host may pick on behalf of someone who left
@@ -732,6 +749,8 @@
   }
 
   function attachPersistent() {
+    const ws = document.getElementById('wallpad-slot');
+    if (ws) { const p = getWallPad(); ws.appendChild(p.el); requestAnimationFrame(() => p.fit()); }
     const ps = document.getElementById('pad-slot');
     if (ps) { const p = getPad(); ps.appendChild(p.el); requestAnimationFrame(() => p.fit()); }
     if (!use3D) return;
@@ -887,7 +906,7 @@
     const online = v.players.filter((p) => p.online).length;
     const themeOpts = Object.entries(window.THEMES).map(([k, t]) => `<option value="${k}" ${v.settings.theme === k ? 'selected' : ''}>${esc(t.name)}</option>`).join('')
       + `<option value="custom" ${v.settings.theme === 'custom' ? 'selected' : ''}>Your own theme…</option>`;
-    const stage = use3D ? stage3D() : `<div class="stage-empty"><p>${online} ${online === 1 ? 'player' : 'players'} at the table</p></div>`;
+    const stage = canWriteWall() ? wallDeskHTML() : use3D ? stage3D() : `<div class="stage-empty"><p>${online} ${online === 1 ? 'player' : 'players'} at the table</p></div>`;
     const side = `
       <section class="blk">
         <h2>Invite players</h2>
@@ -899,6 +918,7 @@
       </section>
       <section class="blk">
         <h2>Players <span class="count">${online}</span></h2>
+        ${wallNoteHTML()}
         <ul class="plist">
           ${v.players.map((p) => `
             <li class="${p.online ? '' : 'off'}">
@@ -1037,6 +1057,8 @@
     return {
       me: app.me,
       mode: v.phase === 'playing' && v.order.includes(app.me) ? 'seat' : 'orbit',
+      seed: v.code,
+      graffiti: v.graffiti || [],
       players: ids.map((id) => {
         const p = P(id) || { name: '?', color: '#888', online: false };
         const r = result(id);
@@ -1215,6 +1237,28 @@
     </button>`;
   }
 
+  // ----- the winner writes on the wall -----
+  let wallPad = null;
+  function getWallPad() {
+    if (!wallPad) wallPad = window.Draw.createPad(null, { aspect: 2.4, bg: '#e9e7e2', cls: 'wallpad', hint: 'Write your message for the wall' });
+    return wallPad;
+  }
+  function canWriteWall() { const v = app.view; return v && v.lastWinner === app.me && !v.wallDone && (v.phase === 'over' || v.phase === 'lobby'); }
+  function wallDeskHTML() {
+    return `<div class="drawdesk wall">
+      <div class="dd-head"><h2>You won. Leave your mark.</h2>
+      <p>Write or draw something on the wall. Everyone will see it during the next round, signed with your name.</p></div>
+      <div id="wallpad-slot"></div>
+      <div class="row gap"><button class="btn quiet" data-act="wall-skip">Skip</button><button class="btn primary" data-act="wall-paint">Paint it on the wall</button></div>
+    </div>`;
+  }
+  function wallNoteHTML() {
+    const v = app.view;
+    if (!v.lastWinner || v.wallDone || v.lastWinner === app.me) return '';
+    const w = P(v.lastWinner);
+    return w ? `<p class="note">${esc(w.name)} is writing something on the wall…</p>` : '';
+  }
+
   // ----- results -----
   function overHTML() {
     const v = app.view;
@@ -1234,11 +1278,12 @@
       </li>`;
     }).join('');
     const winner = got[0] && P(got[0].id);
-    const stage = use3D ? stage3D() : '';
+    const stage = canWriteWall() ? wallDeskHTML() : use3D ? stage3D() : '';
     const side = `
       <section class="blk">
         <h2 class="winner">${winner ? `${esc(winner.name)} wins` : 'Game over'}</h2>
         <ol class="results">${rows}</ol>
+        ${wallNoteHTML()}
       </section>
       <section class="blk last">
         ${amHost() ? '<button class="btn primary wide" data-act="again">Play another round</button>' : `<p class="note">Waiting for ${esc((hostPlayer() || {}).name || 'the host')} to start another round.</p>`}
@@ -1364,6 +1409,13 @@
       case 'change': pickEditing = true; render(); break;
       case 'pickfor': hostCoverFor = b.dataset.id; render(); break;
       case 'player': openPlayer(b.dataset.id); break;
+      case 'wall-paint': {
+        const p = getWallPad();
+        if (p.isEmpty()) { toast('Write something first'); return; }
+        send({ a: 'wall', drawing: p.get() }); p.reset();
+        break;
+      }
+      case 'wall-skip': send({ a: 'wall', skip: true }); break;
       case 'fx': sendFx(b.dataset.k === 'answer' ? 'answer' : 'emote', b.dataset.v); break;
       case 'gear-style': case 'gear-color': {
         const mine = P(app.me) || {};

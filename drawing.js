@@ -10,7 +10,7 @@
   const COLORS = ['#1b1b2f', '#e03131', '#1971c2', '#2f9e44', '#9c36b5', '#f08c00'];
   const SIZES = [0.02, 0.036, 0.06];   // pen thickness, as a share of the pad width
   const ASPECT = 1.2;                    // pad width / height
-  const FACE_BG = '#efece6';             // the mannequin face colour
+  const FACE_BG = '#d8cfbf';             // the mannequin face colour
   const MAX_POINTS = 6000;
 
   // ---------- packing strokes into short text ----------
@@ -87,17 +87,17 @@
   }
 
   // a picture of a drawing (for the 3D faces, results and pop-ups)
-  function toCanvas(drawing, width = 480, bg = FACE_BG) {
+  function toCanvas(drawing, width = 480, bg = FACE_BG, aspect = ASPECT) {
     const c = document.createElement('canvas');
-    c.width = width; c.height = Math.round(width / ASPECT);
+    c.width = width; c.height = Math.round(width / aspect);
     paint(c.getContext('2d'), decode(drawing), c.width, c.height, bg);
     return c;
   }
   const urlCache = new Map();
-  function toDataURL(drawing, width = 360) {
-    const key = JSON.stringify(drawing) + width;
+  function toDataURL(drawing, width = 360, bg = FACE_BG, aspect = ASPECT) {
+    const key = JSON.stringify(drawing) + width + bg + aspect;
     if (urlCache.has(key)) return urlCache.get(key);
-    const url = toCanvas(drawing, width).toDataURL('image/png');
+    const url = toCanvas(drawing, width, bg, aspect).toDataURL('image/png');
     if (urlCache.size > 60) urlCache.clear();
     urlCache.set(key, url);
     return url;
@@ -105,11 +105,12 @@
 
   // ---------- the drawing pad ----------
   // Returns one element that keeps its drawing even if the screen around it is redrawn.
-  function createPad(onChange) {
+  function createPad(onChange, opts = {}) {
+    const aspect = opts.aspect || ASPECT, bgCol = opts.bg || FACE_BG;
     const wrap = document.createElement('div');
     wrap.className = 'pad-wrap';
     wrap.innerHTML = `
-      <div class="pad-face"><canvas class="pad"></canvas><div class="pad-hint">Draw the word here</div></div>
+      <div class="pad-face ${opts.cls || ''}"><canvas class="pad"></canvas><div class="pad-hint">${opts.hint || 'Draw the word here'}</div></div>
       <div class="pad-tools">
         <div class="swatches">${COLORS.map((c, i) => `<button class="sw ${i === 0 ? 'on' : ''}" data-c="${i}" style="--sw:${c}" aria-label="Colour ${i + 1}"></button>`).join('')}</div>
         <div class="sizes">${SIZES.map((s, i) => `<button class="sz ${i === 1 ? 'on' : ''}" data-w="${i}" aria-label="Pen size ${i + 1}"><span style="width:${6 + i * 6}px;height:${6 + i * 6}px"></span></button>`).join('')}</div>
@@ -127,14 +128,14 @@
       const r = canvas.getBoundingClientRect();
       if (!r.width) return;
       dpr = Math.min(window.devicePixelRatio || 1, 2);
-      W = r.width; H = r.width / ASPECT;
+      W = r.width; H = r.width / aspect;
       canvas.style.height = H + 'px';
       canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
       redraw();
     }
     function redraw() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      paint(ctx, current ? strokes.concat([current]) : strokes, W, H, FACE_BG);
+      paint(ctx, current ? strokes.concat([current]) : strokes, W, H, bgCol);
       hint.style.display = strokes.length || current ? 'none' : '';
     }
     function pos(e) {
@@ -191,7 +192,7 @@
       set: (drawing) => { strokes = decode(drawing); redraw(); },
       reset: () => { strokes = []; current = null; redraw(); },
     };
-    window.Draw._lastPad = api;
+    if (!opts.cls) window.Draw._lastPad = api; else window.Draw._wallPad = api;
     api._count = () => strokes.length + (current ? 1 : 0);
     return api;
   }

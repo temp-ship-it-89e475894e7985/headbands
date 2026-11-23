@@ -183,7 +183,7 @@ select.inp option { background: var(--felt-deep); color: var(--chalk); }
 .drawdesk.done { text-align: center; }
 .drawdesk.done .faceimg { margin: 24px auto 10px; }
 .pad-wrap { margin: 20px auto 0; }
-.pad-face { position: relative; border-radius: 42% 42% 36% 36% / 48% 48% 32% 32%; overflow: hidden; background: #efece6; box-shadow: 0 20px 40px -20px rgba(0,0,0,.7); }
+.pad-face { position: relative; border-radius: 42% 42% 36% 36% / 48% 48% 32% 32%; overflow: hidden; background: #d8cfbf; box-shadow: 0 20px 40px -20px rgba(0,0,0,.7); }
 .pad { display: block; width: 100%; touch-action: none; cursor: crosshair; }
 .pad-hint { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(70, 40, 20, .35); font-size: 18px; font-weight: 600; pointer-events: none; }
 .pad-tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-top: 16px; }
@@ -198,7 +198,7 @@ select.inp option { background: var(--felt-deep); color: var(--chalk); }
 .idea { color: var(--chalk); border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; }
 
 /* faces as pictures */
-.faceimg { display: block; width: 100%; max-width: 180px; aspect-ratio: 1.2; border-radius: 42% 42% 36% 36% / 48% 48% 32% 32%; background: #efece6; object-fit: cover; margin: 0; }
+.faceimg { display: block; width: 100%; max-width: 180px; aspect-ratio: 1.2; border-radius: 42% 42% 36% 36% / 48% 48% 32% 32%; background: #d8cfbf; object-fit: cover; margin: 0; }
 .faceimg.big { max-width: 420px; margin: 0 auto; }
 .faceimg.thumb { width: 72px; flex: none; }
 .blankface { display: grid; place-items: center; background: #2a5446; }
@@ -322,3 +322,8 @@ html:has(body.light) { background: #e9e8e4; }
 @media (max-width: 900px) {
   .light .hero-shade { background: linear-gradient(0deg, #e9e8e4 0%, rgba(233, 232, 228, 0) 40%); }
 }
+
+/* the winner's wall pad */
+.pad-face.wallpad { border-radius: 4px; background: #e9e7e2; box-shadow: inset 0 0 40px rgba(60, 50, 40, .15), 0 20px 40px -20px rgba(0,0,0,.7); }
+.drawdesk.wall { max-width: 760px; }
+.drawdesk.wall .row.gap { justify-content: flex-end; margin-top: 16px; }

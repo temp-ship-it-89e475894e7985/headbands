@@ -17,14 +17,14 @@
   })();
   if (!supported) { window.Table3D = { supported: false }; return; }
 
-  const FACE_BG = '#efece6';
+  const FACE_BG = '#d8cfbf';
   const el = document.createElement('div');
   el.className = 'scene3d';
   const renderer = new T.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = T.SRGBColorSpace;
   renderer.toneMapping = T.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.2;
+  renderer.toneMappingExposure = 1.15;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = T.PCFSoftShadowMap;
   el.appendChild(renderer.domElement);
@@ -43,12 +43,12 @@
   const skirting = new T.Mesh(new T.CylinderGeometry(ROOM - 0.01, ROOM - 0.01, 0.12, 56, 1, true), white(0xcfccc4, 0.8, T.BackSide)); skirting.position.y = 0.06; scene.add(skirting);
   const rug = new T.Mesh(new T.CircleGeometry(1, 48), white(0xe4e1da, 1)); rug.rotation.x = -Math.PI / 2; rug.position.y = 0.004; rug.receiveShadow = true; scene.add(rug);
 
-  const ambient = new T.HemisphereLight(0xffffff, 0x9a9890, 0.38); scene.add(ambient);
+  const ambient = new T.HemisphereLight(0xffffff, 0x5a5850, 0.06); scene.add(ambient); // just enough to not be pitch black
   const LAMP_Y = 2.55;
   const spot = new T.SpotLight(0xfff0dc, 34, 10, 0.95, 0.55, 1.5);
   spot.position.set(0, LAMP_Y, 0); spot.target.position.set(0, 0, 0); scene.add(spot, spot.target);
   spot.castShadow = true; spot.shadow.mapSize.set(1024, 1024); spot.shadow.bias = -0.0004; spot.shadow.camera.near = 0.3; spot.shadow.camera.far = 8;
-  const glow = new T.PointLight(0xfff0dc, 7, 12, 1.3); glow.position.set(0, LAMP_Y + 0.25, 0); scene.add(glow); // dim light on the walls and ceiling
+  const glow = new T.PointLight(0xfff0dc, 9, 0, 1.6); glow.position.set(0, LAMP_Y - 0.02, 0); scene.add(glow); // the bulb itself, lighting the room around it
   const shade = new T.Mesh(new T.ConeGeometry(0.3, 0.24, 32, 1, true), new T.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.45, metalness: 0.4, side: T.DoubleSide }));
   shade.position.set(0, LAMP_Y + 0.13, 0); scene.add(shade);
   const bulbMat = new T.MeshBasicMaterial({ color: 0xfff1c9 });
@@ -61,7 +61,7 @@
     let target = 0.96 + Math.sin(t / 90) * 0.02 + Math.sin(t / 37) * 0.015;
     if (t < flick.until) target = Math.random() < 0.45 ? 0.18 + Math.random() * 0.3 : 0.85 + Math.random() * 0.2;
     flick.level += (target - flick.level) * (t < flick.until ? 0.7 : 0.15);
-    spot.intensity = 34 * flick.level; glow.intensity = 7 * flick.level;
+    spot.intensity = 30 * flick.level; glow.intensity = 9 * flick.level;
     bulbMat.color.setRGB(1, 0.94, 0.79).multiplyScalar(0.35 + 0.65 * flick.level);
   }
 
@@ -72,8 +72,95 @@
   const tableLeg = new T.Mesh(new T.CylinderGeometry(0.06, 0.24, 0.72, 24), tableMat); tableLeg.position.y = 0.36; tableLeg.castShadow = true;
   scene.add(tableTop, tableEdge, tableLeg);
 
+  // ---------- writing on the walls ----------
+  const PHRASES = ['NO ESCAPE', 'THEY KNOW', 'LOOK CLOSER', "IT'S ON YOUR FACE", 'WHO ARE YOU?', 'KEEP GUESSING', 'NOBODY LEAVES',
+    "DON'T TRUST THEM", 'ASK THE RIGHT QUESTION', 'TAKE IT AT FACE VALUE', 'WE WERE ALL HERE BEFORE', "YOU CAN'T SEE IT", 'COUNT THE CHAIRS',
+    'STILL HERE', 'WHO DREW THIS?', 'ONE OF YOU IS LYING', 'THE LIGHT IS WATCHING', 'DO NOT GUESS WRONG'];
+  const wallGroup = new T.Group(); scene.add(wallGroup);
+  let wallKey = '';
+  function seeded(str) {
+    let h = 2166136261 >>> 0;
+    for (const c of String(str)) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+    return () => { h = Math.imul(h ^ (h >>> 15), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
+  }
+  const PAINT = 'rgba(74, 22, 18, 0.82)';
+  function phraseCanvas(text, rnd) {
+    const c = document.createElement('canvas'); const x = c.getContext('2d');
+    const font = '400 120px "Permanent Marker", "Marker Felt", "Comic Sans MS", cursive';
+    x.font = font;
+    c.width = Math.ceil(x.measureText(text).width) + 80; c.height = 230;
+    x.font = font; x.fillStyle = PAINT; x.textBaseline = 'middle';
+    x.translate(40, 100); x.rotate((rnd() - 0.5) * 0.08);
+    x.fillText(text, 0, 0);
+    // paint drips
+    for (let i = 0; i < 6; i++) {
+      const dx = rnd() * (c.width - 100), len = 20 + rnd() * 70, w = 3 + rnd() * 5;
+      const g = x.createLinearGradient(0, 40, 0, 40 + len); g.addColorStop(0, PAINT); g.addColorStop(1, 'rgba(74,22,18,0)');
+      x.fillStyle = g; x.fillRect(dx, 38, w, len);
+    }
+    return c;
+  }
+  function tallyCanvas(rnd) {
+    const c = document.createElement('canvas'); c.width = 520; c.height = 200; const x = c.getContext('2d');
+    x.strokeStyle = PAINT; x.lineCap = 'round'; x.lineWidth = 9;
+    const groups = 2 + Math.floor(rnd() * 3);
+    for (let gI = 0; gI < groups; gI++) {
+      const ox = 30 + gI * 120;
+      for (let i = 0; i < 4; i++) { x.beginPath(); x.moveTo(ox + i * 22, 40 + rnd() * 8); x.lineTo(ox + i * 22 + (rnd() - 0.5) * 8, 160 + rnd() * 8); x.stroke(); }
+      x.beginPath(); x.moveTo(ox - 12, 140); x.lineTo(ox + 82, 55); x.stroke();
+    }
+    return c;
+  }
+  function graffitiCanvas(g) {
+    const c = window.Draw.toCanvas(g.d, 1200, null, 2.4);
+    const x = c.getContext('2d');
+    x.font = '400 64px "Permanent Marker", "Marker Felt", cursive'; x.fillStyle = 'rgba(30, 30, 30, 0.85)'; x.textAlign = 'right';
+    x.fillText('— ' + (g.by || '?'), c.width - 30, c.height - 30);
+    return c;
+  }
+  function wallDecal(canvas, angle, y, widthM) {
+    const heightM = widthM * canvas.height / canvas.width;
+    const r = ROOM - 0.03;
+    const len = widthM / r;
+    const geo = new T.CylinderGeometry(r, r, heightM, 24, 1, true, angle - len / 2, len);
+    const tex = new T.CanvasTexture(canvas); tex.colorSpace = T.SRGBColorSpace;
+    tex.wrapS = T.RepeatWrapping; tex.repeat.x = -1; // we see it from inside the room
+    tex.anisotropy = 4;
+    const m = new T.Mesh(geo, new T.MeshStandardMaterial({ map: tex, transparent: true, side: T.BackSide, roughness: 0.95, depthWrite: false }));
+    m.position.y = y; m.receiveShadow = true;
+    return m;
+  }
+  function buildWalls(seed, graffiti) {
+    const key = seed + '|' + graffiti.map((g) => g.id).join(',');
+    if (key === wallKey) return;
+    wallKey = key;
+    for (const m of [...wallGroup.children]) { wallGroup.remove(m); m.geometry.dispose(); m.material.map.dispose(); m.material.dispose(); }
+    const rnd = seeded(seed);
+    const used = [];
+    const free = (a, gap) => used.every((u) => Math.abs(Math.atan2(Math.sin(a - u), Math.cos(a - u))) > gap);
+    // winners' messages: newest twice (opposite walls) so everyone can see it
+    const base = rnd() * Math.PI * 2;
+    graffiti.slice().reverse().forEach((g, i) => {
+      const spots = i === 0 ? [base, base + Math.PI] : [base + (i === 1 ? Math.PI / 2 : -Math.PI / 2)];
+      for (const a of spots) { wallGroup.add(wallDecal(graffitiCanvas(g), a, 1.85, i === 0 ? 3.0 : 2.4)); used.push(a); }
+    });
+    const pool = PHRASES.slice();
+    const count = 7;
+    for (let i = 0; i < count; i++) {
+      let a = rnd() * Math.PI * 2, tries = 0;
+      while (!free(a, 0.55) && tries++ < 30) a = rnd() * Math.PI * 2;
+      used.push(a);
+      const y = 1.2 + rnd() * 1.7;
+      if (i === count - 1 || rnd() < 0.12) { wallGroup.add(wallDecal(tallyCanvas(rnd), a, y, 1.0 + rnd() * 0.5)); continue; }
+      const text = pool.splice(Math.floor(rnd() * pool.length), 1)[0];
+      wallGroup.add(wallDecal(phraseCanvas(text, rnd), a, y, 1.3 + text.length * 0.09 + rnd() * 0.4));
+    }
+  }
+
   // ---------- mannequin parts (shared) ----------
-  const plastic = new T.MeshStandardMaterial({ color: 0xefece6, roughness: 0.42 });
+  const plastic = new T.MeshStandardMaterial({ color: 0xd8cfbf, roughness: 0.45 });
+  const leather = new T.MeshStandardMaterial({ color: 0x3a2a20, roughness: 0.7, side: T.DoubleSide });
+  const brass = new T.MeshStandardMaterial({ color: 0xb08d57, roughness: 0.35, metalness: 0.8 });
   const chairMat = new T.MeshStandardMaterial({ color: 0x2b2420, roughness: 0.6 });
   const lathe = (pts, segs = 32) => new T.LatheGeometry(pts.map(([r, y]) => new T.Vector2(r, y)), segs);
   function taper(len, rTop, rMid, rBot, midAt = 0.35) {
@@ -96,6 +183,12 @@
     shin: taper(0.47, 0.046, 0.05, 0.028, 0.3),
     foot: (() => { const g = new T.CapsuleGeometry(0.038, 0.13, 6, 12); g.rotateX(Math.PI / 2); g.scale(1.05, 0.7, 1); return g; })(),
     seat: new T.BoxGeometry(0.46, 0.05, 0.44),
+    armrest: new T.BoxGeometry(0.07, 0.035, 0.5),
+    post: new T.BoxGeometry(0.035, 0.22, 0.035),
+    bar: new T.BoxGeometry(0.44, 0.035, 0.035),
+    band: new T.CylinderGeometry(1, 1, 1, 24, 1, true),
+    buckle: (() => { const g = new T.BoxGeometry(0.045, 0.04, 0.012); return g; })(),
+    tether: new T.BoxGeometry(0.03, 0.012, 0.28),
     back: new T.BoxGeometry(0.46, 0.55, 0.05),
     leg: new T.BoxGeometry(0.04, 0.46, 0.04),
     ring: new T.TorusGeometry(0.42, 0.03, 10, 48),
@@ -241,7 +334,22 @@
     const b = new T.Mesh(G.back, chairMat); b.position.set(0, 0.76, -0.24);
     chair.add(s, b);
     for (const [x, z] of [[-0.2, -0.21], [0.2, -0.21], [-0.2, 0.17], [0.2, 0.17]]) { const l = new T.Mesh(G.leg, chairMat); l.position.set(x, 0.23, z); chair.add(l); }
+    for (const side of [-1, 1]) {
+      const arm = new T.Mesh(G.armrest, chairMat); arm.position.set(side * 0.255, 0.715, 0.04); chair.add(arm);
+      const post = new T.Mesh(G.post, chairMat); post.position.set(side * 0.255, 0.6, 0.22); chair.add(post);
+      const post2 = new T.Mesh(G.post, chairMat); post2.position.set(side * 0.255, 0.6, -0.16); chair.add(post2);
+    }
+    const bar = new T.Mesh(G.bar, chairMat); bar.position.set(0, 0.13, 0.17); chair.add(bar);
     seat.add(chair);
+    // straps: chest to the chair back, wrists to the armrests, ankles to the chair
+    const straps = new T.Group(); seat.add(straps);
+    const chest = new T.Mesh(G.band, leather); chest.scale.set(0.215, 0.055, 0.195); chest.position.set(0, 0.93, -0.075); straps.add(chest);
+    const chestBuckle = new T.Mesh(G.buckle, brass); chestBuckle.position.set(0, 0.93, 0.122); straps.add(chestBuckle);
+    for (const side of [-1, 1]) {
+      const w = new T.Mesh(G.band, leather); w.rotation.x = Math.PI / 2; w.scale.set(0.055, 0.045, 0.07); w.position.set(side * 0.25, 0.745, 0.2); straps.add(w);
+      const wb = new T.Mesh(G.buckle, brass); wb.scale.setScalar(0.7); wb.position.set(side * 0.25, 0.815, 0.2); straps.add(wb);
+      const tether = new T.Mesh(G.tether, leather); tether.position.set(side * 0.1, 0.13, 0.31); straps.add(tether);
+    }
 
     const fig = new T.Group(); seat.add(fig);
     const add = (geo, x, y, z, parent) => { const m = new T.Mesh(geo, plastic); m.position.set(x, y, z); parent.add(m); return m; };
@@ -254,6 +362,7 @@
       add(G.shin, 0, 0.02, 0, kn);
       const ft = new T.Group(); ft.position.set(0, -0.45, 0); kn.add(ft);
       add(G.foot, 0, -0.02, 0.05, ft);
+      const cuff = new T.Mesh(G.band, leather); cuff.scale.set(0.045, 0.05, 0.045); cuff.position.set(0, -0.37, 0); kn.add(cuff);
       hp.rotation.set(-Math.PI / 2 + 0.06, 0, side * 0.04); kn.rotation.set(Math.PI / 2 - 0.1, 0, 0); ft.rotation.set(0.05, 0, 0);
     }
     const upper = new T.Group(); upper.position.y = 0.5; fig.add(upper);
@@ -274,14 +383,14 @@
       const wr = new T.Group(); wr.position.set(0, -0.26, 0); el2.add(wr);
       add(G.hand, 0, -0.06, 0, wr);
       const th = add(G.thumb, side * -0.03, -0.035, 0.012, wr); th.rotation.z = side * 0.5;
-      sh.rotation.set(-0.5, 0, side * 0.1); el2.rotation.set(-1.05, 0, 0); wr.rotation.set(0.1, 0, 0);
+      sh.rotation.set(-0.1, 0, side * 0.17); el2.rotation.set(-Math.PI / 2 + 0.1, 0, -side * 0.17); wr.rotation.set(0.05, 0, 0); // resting on the armrests
       arms.push({ sh, el: el2 });
     }
     const ring = new T.Mesh(G.ring, new T.MeshBasicMaterial({ color: 0xf4c542, transparent: true, opacity: 0.9 }));
     ring.rotation.x = Math.PI / 2; ring.position.set(0, 0.02, 0.02); ring.visible = false; seat.add(ring);
 
     const f = {
-      id: p.id, seat, fig, upper, neckG, headG, face, faceMat, chair, ring, arms, name: p.name, color: p.color, badge: '', tagExtra: null,
+      id: p.id, seat, fig, upper, neckG, straps, headG, face, faceMat, chair, ring, arms, name: p.name, color: p.color, badge: '', tagExtra: null,
       gear: null, gearKey: '', tag: null, tagKey: '', faceKey: '',
       look: null,                  // { yaw, pitch, inspect, at } from the network
       cur: { yaw: 0, pitch: -0.1, peer: 0, peerYaw: 0 },
@@ -369,7 +478,7 @@
       f.seat.position.set(R * Math.cos(a), 0, R * Math.sin(a));
       f.seat.lookAt(0, 0, 0);
       f.seat.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-      if (p.id === me && mode === 'seat') { f.fig.visible = false; f.chair.visible = false; }
+      if (p.id === me && mode === 'seat') { f.fig.visible = false; f.chair.visible = false; f.straps.visible = false; }
       scene.add(f.seat);
       figures.set(p.id, f);
     });
@@ -389,6 +498,7 @@
     me = data.me; mode = data.mode === 'seat' ? 'seat' : 'orbit'; demo = !!data.demo; shift = data.shift || 0;
     const key = (demo ? 'D|' : mode === 'seat' ? 'S' + me + '|' : 'O|') + data.players.map((p) => p.id).join(',');
     if (key !== layoutKey) { layoutKey = key; rebuild(data); }
+    buildWalls(data.seed || 'home', Array.isArray(data.graffiti) ? data.graffiti : []);
     const ord = (k) => k + (['th', 'st', 'nd', 'rd'][(k % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][k % 100] || 'th');
     for (const p of data.players) {
       const f = figures.get(p.id);
@@ -709,7 +819,7 @@
   function stop() { running = false; }
   if ('ResizeObserver' in window) new ResizeObserver(resize).observe(el);
   window.addEventListener('resize', resize);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { for (const f of figures.values()) { f.tagKey = ''; f.faceKey = ''; } if (lastData) update(lastData); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { wallKey = ''; for (const f of figures.values()) { f.tagKey = ''; f.faceKey = ''; } if (lastData) update(lastData); });
 
   // ---------- headband preview (lobby picker) ----------
   // Renders a small picture of a head wearing each style, for the picker buttons.
@@ -749,7 +859,7 @@
     _debug() {
       return {
         figures: [...figures.keys()], me, mode,
-        faces: [...figures.values()].map((f) => ({ id: f.id, drawn: f.faceKey !== 'blank', visible: f.fig.visible, gear: f.gearKey, lean: +f.cur.peer.toFixed(2), yaw: +f.cur.yaw.toFixed(2), tag: f.tagKey })), bubbles: bubbles.length,
+        faces: [...figures.values()].map((f) => ({ id: f.id, drawn: f.faceKey !== 'blank', visible: f.fig.visible, gear: f.gearKey, lean: +f.cur.peer.toFixed(2), yaw: +f.cur.yaw.toFixed(2), tag: f.tagKey })), bubbles: bubbles.length, walls: wallGroup.children.length,
         view: { yaw: +view.yaw.toFixed(2), focus: focusId },
       };
     },
