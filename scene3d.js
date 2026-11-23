@@ -363,6 +363,9 @@
     for (const x of [-0.2, 0.2]) { box(0.04, 1.02, 0.04, x, 0.51, -0.215); box(0.04, 0.46, 0.04, x, 0.23, 0.17); } // back posts + front legs
     box(0.44, 0.07, 0.03, 0, 0.98, -0.215); box(0.44, 0.05, 0.03, 0, 0.74, -0.215); // back rails
     box(0.04, 0.035, 0.38, -0.2, 0.15, -0.02); box(0.04, 0.035, 0.38, 0.2, 0.15, -0.02); // side stretchers
+    // the chair sits right up against the mannequin's back
+    const CHAIR_DZ = 0.107;
+    chair.position.z = CHAIR_DZ;
     seat.add(chair);
 
     const fig = new T.Group(); seat.add(fig);
@@ -437,7 +440,7 @@
         const cx = S.x + (E.x - S.x) * t, cz = S.z + (E.z - S.z) * t, r = 0.049 - 0.004 * t;
         for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; pts.push([cx + Math.cos(a) * r, cz + Math.sin(a) * r]); }
       }
-      for (const px of [-0.2, 0.2]) for (const [dx, dz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) pts.push([px + dx * 0.021, -0.215 + dz * 0.021]);
+      for (const px of [-0.2, 0.2]) for (const [dx, dz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) pts.push([px + dx * 0.021, -0.215 + CHAIR_DZ + dz * 0.021]);
       // convex hull (monotone chain)
       pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
       const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
@@ -468,15 +471,9 @@
     }
     const ropeYs = [0.862, 0.885, 0.908, 0.931];
     for (const y of ropeYs) straps.add(ropeAlong(hullAt(y)));
-    // a short vertical rope cinching the coils together at each side, and a knot at the back
-    for (const side of [-1, 1]) {
-      const pts = ropeYs.map((y) => { const h = hullAt(y); let best = h[0]; for (const p of h) if (side * p.x > side * best.x) best = p; return best.clone(); });
-      pts.unshift(pts[0].clone().add(new T.Vector3(0, -0.02, 0))); pts.push(pts[pts.length - 1].clone().add(new T.Vector3(0, 0.02, 0)));
-      for (const p of pts) p.x += side * 0.006;
-      straps.add(ropeAlong(pts, false));
-    }
-    const knot = new T.Mesh(new T.SphereGeometry(0.026, 12, 10), ropeMat); knot.scale.set(1.3, 1.1, 0.8); knot.position.set(0, 0.9, -0.25); straps.add(knot);
-    const tail = new T.Mesh(new T.CylinderGeometry(0.01, 0.009, 0.24, 8), ropeMat); tail.position.set(0.025, 0.78, -0.252); tail.rotation.z = 0.15; straps.add(tail);
+    // knot at the back of the chair
+    const knot = new T.Mesh(new T.SphereGeometry(0.026, 12, 10), ropeMat); knot.scale.set(1.3, 1.1, 0.8); knot.position.set(0, 0.9, -0.25 + CHAIR_DZ); straps.add(knot);
+    const tail = new T.Mesh(new T.CylinderGeometry(0.01, 0.009, 0.24, 8), ropeMat); tail.position.set(0.025, 0.78, -0.252 + CHAIR_DZ); tail.rotation.z = 0.15; straps.add(tail);
     seat.updateMatrixWorld(true);
     const ap = ankles.map((o) => seat.worldToLocal(o.getWorldPosition(new T.Vector3())));
     const ax = Math.abs(ap[0].x - ap[1].x) / 2, mid = ap[0].clone().add(ap[1]).multiplyScalar(0.5);
