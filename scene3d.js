@@ -263,7 +263,7 @@
   const cv = renderer.domElement;
   cv.style.touchAction = 'none';
   cv.addEventListener('pointerdown', (e) => {
-    cv.setPointerCapture(e.pointerId);
+    try { cv.setPointerCapture(e.pointerId); } catch {}
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     dragMoved = 0; downAt = performance.now();
     if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinchDist = Math.hypot(a.x - b.x, a.y - b.y); }

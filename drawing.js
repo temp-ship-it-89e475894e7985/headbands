@@ -145,7 +145,7 @@
     canvas.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       if (totalPoints() > MAX_POINTS) return;
-      canvas.setPointerCapture(e.pointerId);
+      try { canvas.setPointerCapture(e.pointerId); } catch {}
       current = { c: color, w: size, pts: [pos(e)] };
       redraw();
     });
