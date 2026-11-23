@@ -10,7 +10,7 @@
   const COLORS = ['#1b1b2f', '#e03131', '#1971c2', '#2f9e44', '#9c36b5', '#f08c00'];
   const SIZES = [0.02, 0.036, 0.06];   // pen thickness, as a share of the pad width
   const ASPECT = 1.2;                    // pad width / height
-  const FACE_BG = '#f3e3d3';             // the mannequin face colour
+  const FACE_BG = '#efece6';             // the mannequin face colour
   const MAX_POINTS = 6000;
 
   // ---------- packing strokes into short text ----------

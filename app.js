@@ -28,6 +28,19 @@
 
   const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   const COLORS = ['#e8a33d', '#5aa9e6', '#e5676b', '#7fc8a9', '#b38cd9', '#f2d16b', '#ef8fb1', '#6c8ef5', '#a3c95f', '#5fc4c9', '#d98b5f', '#c4c9c6'];
+  const BAND_COLORS = COLORS.concat(['#f5f5f2', '#2e2e33', '#c0392b', '#1f6b52']);
+  const STYLES = [
+    ['Classic', [['plain', 'Plain']]],
+    ['Cute', [['bow', 'Bow'], ['cat', 'Cat ears'], ['bunny', 'Bunny ears'], ['flowers', 'Flowers']]],
+    ['Sport', [['sweatband', 'Sweatband'], ['stripes', 'Stripes']]],
+    ['Warrior', [['bandana', 'Bandana'], ['spikes', 'Spikes'], ['horns', 'Horns']]],
+    ['Halo', [['halo', 'Halo']]],
+  ];
+  const STYLE_IDS = STYLES.flatMap(([, list]) => list.map(([id]) => id));
+  function cleanGear(g) {
+    g = g || {};
+    return { style: STYLE_IDS.includes(g.style) ? g.style : null, color: BAND_COLORS.includes(g.color) ? g.color : null };
+  }
   const MAX_PLAYERS = 12;
   const params = new URLSearchParams(location.search);
   const LOCAL = params.has('local'); // for testing with a server on this computer
@@ -200,6 +213,7 @@
     down: (code, key) => `${TOPIC_ROOT}${code}/down/${key}`,
     all: (code) => `${TOPIC_ROOT}${code}/all`,
     check: (code) => `${TOPIC_ROOT}${code}/check`,
+    look: (code) => `${TOPIC_ROOT}${code}/look`,
   };
 
   // ==========================================================
@@ -221,7 +235,7 @@
       phase: 'lobby',               // lobby | picking | playing | over
       round: 1,
       settings: { theme: 'animals', customTheme: '', turnSeconds: 60 },
-      players: [{ id: 'p0', key: myKey, name: hostName, color: COLORS[0], online: true, isHost: true, playing: false }],
+      players: [{ id: 'p0', key: myKey, name: hostName, color: cleanGear(store.get('hb-gear')).color || COLORS[0], style: cleanGear(store.get('hb-gear')).style || 'plain', online: true, isHost: true, playing: false }],
       nextId: 1,
       pickFor: {},                  // pickerId -> targetId
       words: {},                    // targetId -> word
@@ -270,6 +284,7 @@
     Net.start(hostOnMsg);
     Net.sub(T.up(code));
     Net.sub(T.check(code));
+    Net.sub(T.look(code));
 
     let checked = !!resumeState;
     const t0 = now();
@@ -313,6 +328,7 @@
       }
       return;
     }
+    if (topic === T.look(code)) return onLookMsg(m);
     if (topic !== T.up(code) || app.screen !== 'game') return;
     const key = String(m.key || '').slice(0, 40);
     if (!key || key === myKey) return;
@@ -345,7 +361,8 @@
       while (st.players.some((x) => x.name.toLowerCase() === finalName.toLowerCase())) finalName = `${name} ${n++}`;
       const used = new Set(st.players.map((x) => x.color));
       const color = COLORS.find((c) => !used.has(c)) || COLORS[rand(COLORS.length)];
-      p = { id: 'p' + st.nextId++, key, name: finalName, color, online: true, isHost: false, playing: false };
+      const gear = cleanGear(msg.gear);
+      p = { id: 'p' + st.nextId++, key, name: finalName, color: gear.color || color, style: gear.style || 'plain', online: true, isHost: false, playing: false };
       st.players.push(p);
       H.event(st.phase === 'lobby' ? `${finalName} joined` : `${finalName} is watching and will play next round`, 'join');
     } else if (!p.online) {
@@ -462,6 +479,10 @@
       if (s.theme && (window.THEMES[s.theme] || s.theme === 'custom')) st.settings.theme = s.theme;
       if (typeof s.customTheme === 'string') st.settings.customTheme = s.customTheme.trim().slice(0, 40);
       if (TIMER_CHOICES.some(([v]) => v === s.turnSeconds)) st.settings.turnSeconds = s.turnSeconds;
+    } else if (a === 'gear' && (st.phase === 'lobby' || st.phase === 'over')) {
+      const g = cleanGear(msg);
+      if (g.style) me.style = g.style;
+      if (g.color) me.color = g.color;
     } else if (a === 'kick' && isHost && st.phase === 'lobby') {
       const p = H.player(msg.target);
       if (!p || p.isHost) return;
@@ -563,6 +584,7 @@
     Net.start(clientOnMsg);
     Net.sub(T.down(code, myKey));
     Net.sub(T.all(code));
+    Net.sub(T.look(code));
     if (client.timer) client.timer.stop();
     let lastTick = now();
     client.timer = every(2000, () => {
@@ -589,11 +611,12 @@
   }
 
   function clientHello() {
-    if (app.role === 'client' && app.code) Net.pub(T.up(app.code), { t: 'hello', key: myKey, name: app.name });
+    if (app.role === 'client' && app.code) Net.pub(T.up(app.code), { t: 'hello', key: myKey, name: app.name, gear: store.get('hb-gear') });
   }
 
   function clientOnMsg(topic, m) {
     if (app.role !== 'client') return;
+    if (topic === T.look(app.code)) return onLookMsg(m);
     if (m.t === 'state' && topic === T.down(app.code, myKey)) {
       if (client.everConnected && m.v < client.v) return; // older message arriving late
       client.v = m.v;
@@ -707,7 +730,12 @@
     if (ps) { const p = getPad(); ps.appendChild(p.el); requestAnimationFrame(() => p.fit()); }
     if (!use3D) return;
     const ss = document.getElementById('scene-slot');
-    if (ss && app.view) {
+    if (ss && app.screen === 'home') {
+      ss.appendChild(window.Table3D.el);
+      window.Table3D.update(demoData());
+      window.Table3D.start();
+      requestAnimationFrame(() => window.Table3D.resize());
+    } else if (ss && app.view) {
       ss.appendChild(window.Table3D.el);
       window.Table3D.update(sceneData());
       window.Table3D.start();
@@ -742,35 +770,52 @@
     const joining = !!app.joinCode;
     return `
     <main class="home">
-      ${logoHTML()}
-      <p class="lede">The party game where everyone can read your forehead but you. Draw a word on a friend's face, then take turns asking yes-or-no questions to work out your own.</p>
-      <div class="sheet">
-        <label class="lbl" for="name">Your name</label>
-        <input id="name" class="inp" maxlength="16" autocomplete="nickname" placeholder="What should we call you?" value="${esc(app.name)}">
-        ${joining ? `
-          <button class="btn primary wide" data-act="join">Join room ${esc(app.joinCode)}</button>
-          <button class="btn quiet" data-act="notjoin">Use a different code</button>
-        ` : `
-          <button class="btn primary wide" data-act="create">Create a room</button>
-          <div class="divider"><span>or join one</span></div>
-          <div class="row">
-            <input id="code" class="inp code" maxlength="6" autocapitalize="characters" autocomplete="off" placeholder="Room code" value="${esc(app.joinCode)}" aria-label="Room code">
-            <button class="btn" data-act="join">Join</button>
+      <section class="hero">
+        ${use3D ? '<div id="scene-slot" class="hero-scene" aria-hidden="true"></div><div class="hero-shade"></div>' : ''}
+        <div class="hero-content">
+          ${logoHTML()}
+          <p class="lede">The party game where everyone can read your forehead but you. Draw a word on a friend's face, then take turns asking yes-or-no questions to work out your own.</p>
+          <div class="sheet">
+            <label class="lbl" for="name">Your name</label>
+            <input id="name" class="inp" maxlength="16" autocomplete="nickname" placeholder="What should we call you?" value="${esc(app.name)}">
+            ${joining ? `
+              <button class="btn primary wide" data-act="join">Join room ${esc(app.joinCode)}</button>
+              <button class="btn quiet" data-act="notjoin">Use a different code</button>
+            ` : `
+              <button class="btn primary wide" data-act="create">Create a room</button>
+              <div class="divider"><span>or join one</span></div>
+              <div class="row">
+                <input id="code" class="inp code" maxlength="6" autocapitalize="characters" autocomplete="off" placeholder="Room code" value="${esc(app.joinCode)}" aria-label="Room code">
+                <button class="btn" data-act="join">Join</button>
+              </div>
+            `}
+            ${app.error ? `<p class="err">${esc(app.error)}</p>` : ''}
           </div>
-        `}
-        ${app.error ? `<p class="err">${esc(app.error)}</p>` : ''}
-      </div>
+          <p class="small-print">Free to play. No downloads or accounts. Works on phones and computers.</p>
+        </div>
+      </section>
       <section class="rules">
         <h2>How to play</h2>
         <ol>
-          <li>Create a room and send the link to your friends. Get everyone on a voice call.</li>
-          <li>Each player is secretly given someone else and draws a word on their blank face.</li>
-          <li>Everyone sits around the table. You can see every face except your own.</li>
-          <li>On your turn, ask yes-or-no questions out loud to narrow down your word.</li>
-          <li>When someone guesses right, tap them and confirm. First to guess wins.</li>
+          <li><b>Gather</b>Create a room, send the link to your friends and get everyone on a voice call.</li>
+          <li><b>Draw</b>You're secretly given another player. Write a word on their blank face.</li>
+          <li><b>Ask</b>You can see every face but your own. On your turn, ask yes-or-no questions out loud.</li>
+          <li><b>Guess</b>When someone gets theirs, tap them to confirm. First to guess wins.</li>
         </ol>
       </section>
     </main>`;
+  }
+
+  const DEMO_TABLE = [
+    ['Sam', '#e8a33d', 'Penguin', 'sweatband'], ['Priya', '#ef8fb1', 'Toaster', 'cat'], ['Leo', '#e5676b', 'Pirate', 'bandana'],
+    ['Maya', '#7fc8a9', 'Volcano', 'flowers'], ['Jordan', '#6c8ef5', 'Sushi', 'horns'], ['Kai', '#f2d16b', 'Ghost', 'halo'],
+  ];
+  function demoData() {
+    return {
+      demo: true, mode: 'orbit', me: null,
+      shift: window.innerWidth > 900 ? 0.2 : 0,
+      players: DEMO_TABLE.map(([name, color, faceText, style], i) => ({ id: 'demo' + i, name, color, style, faceText, online: true, isTurn: i === 2 })),
+    };
   }
 
   function connectingHTML() {
@@ -858,6 +903,7 @@
             </li>`).join('')}
         </ul>
       </section>
+      ${gearPickerHTML()}
       <section class="blk">
         <h2>Settings</h2>
         ${hostMe ? `
@@ -876,6 +922,19 @@
           : `<p class="note">Waiting for ${esc((hostPlayer() || {}).name || 'the host')} to start the game.</p>`}
       </section>`;
     return [stage, side];
+  }
+
+  function gearPickerHTML() {
+    const mine = P(app.me); if (!mine) return '';
+    const style = mine.style || 'plain';
+    const thumb = (id) => (use3D ? `<img alt="" src="${window.Table3D.gearThumb(id, mine.color)}">` : '');
+    return `<section class="blk">
+      <h2>Your headband</h2>
+      ${STYLES.map(([group, list]) => `<div class="gear-group"><span class="lbl">${group}</span><div class="gear-grid">${list.map(([id, label]) =>
+        `<button class="gear ${style === id ? 'on' : ''}" data-act="gear-style" data-style="${id}" aria-pressed="${style === id}">${thumb(id)}<span>${label}</span></button>`).join('')}</div></div>`).join('')}
+      <span class="lbl">Colour</span>
+      <div class="swatchrow">${BAND_COLORS.map((c) => `<button class="sw ${mine.color === c ? 'on' : ''}" style="--sw:${c}" data-act="gear-color" data-color="${c}" aria-label="Colour ${c}" aria-pressed="${mine.color === c}"></button>`).join('')}</div>
+    </section>`;
   }
 
   // ----- picking (drawing on faces) -----
@@ -971,13 +1030,13 @@
     const got = v.results.filter((r) => r.how === 'got').map((r) => r.id);
     return {
       me: app.me,
-      spectator: v.phase !== 'lobby' && !v.order.includes(app.me),
+      mode: v.phase === 'playing' && v.order.includes(app.me) ? 'seat' : 'orbit',
       players: ids.map((id) => {
         const p = P(id) || { name: '?', color: '#888', online: false };
         const r = result(id);
         const w = v.words[id];
         return {
-          id, name: p.name, color: p.color, online: p.online,
+          id, name: p.name, color: p.color, style: p.style, online: p.online,
           face: v.phase === 'playing' || v.phase === 'over' ? (w && w !== 'hidden' ? w : null) : null,
           isTurn: v.phase === 'playing' && v.turnId === id,
           done: r ? r.how : null,
@@ -986,7 +1045,19 @@
       }),
     };
   }
-  if (use3D) window.Table3D.onPick((id) => openPlayer(id));
+  if (use3D) {
+    window.Table3D.onPick((id) => { if (id) openPlayer(id); else closeModal(); });
+    // share where I'm looking (and who I'm leaning in to inspect) with everyone
+    window.Table3D.onLook((l) => {
+      if (!app.role || !app.code || !app.me) return;
+      Net.pub(T.look(app.code), { t: 'look', pid: app.me, y: l.yaw, p: l.pitch, i: l.inspect });
+    });
+  }
+  function onLookMsg(m) {
+    if (!use3D || m.t !== 'look' || !m.pid || m.pid === app.me) return;
+    window.Table3D.setLook(String(m.pid).slice(0, 8), +m.y, +m.p, m.i ? String(m.i).slice(0, 8) : '');
+  }
+  function closeModal() { const m = $('#modal'); if (!m.classList.contains('hidden')) { m.classList.add('hidden'); m.innerHTML = ''; m.classList.remove('peek'); } }
 
   function statusText(id) {
     const v = app.view; const r = result(id);
@@ -1019,8 +1090,13 @@
         ${canGot ? `<button class="btn primary" data-m="yes">${esc(p.name)} guessed it</button>` : ''}
       </div></div>`;
     m.classList.remove('hidden');
-    const close = () => { m.classList.add('hidden'); m.innerHTML = ''; if (use3D) window.Table3D.focus(null); };
+    m.classList.add('peek');
+    if (use3D) window.Table3D.focus(id); // zoom in, and lean in for everyone to see
+    const close = () => { m.classList.add('hidden'); m.innerHTML = ''; m.classList.remove('peek'); if (use3D) window.Table3D.focus(null); };
+    const openedAt = performance.now();
     m.onclick = (e) => {
+      // ignore the click that comes from the same tap that opened this card
+      if (performance.now() - openedAt < 450) return;
       const b = e.target.closest('[data-m]');
       if (e.target === m || (b && b.dataset.m === 'no')) close();
       else if (b && b.dataset.m === 'yes') { close(); send({ a: 'gotit', target: id }); }
@@ -1053,7 +1129,7 @@
     const hostMe = amHost();
     const watchers = v.players.filter((p) => !v.order.includes(p.id));
 
-    const stage = use3D ? `${stage3D()}<p class="stage-hint">Drag to look around. Tap someone to zoom in.</p>`
+    const stage = use3D ? `${stage3D()}<p class="stage-hint"><span class="hint-mouse">Move your mouse to look around. Click someone to zoom in.</span><span class="hint-touch">Drag to look around. Tap someone to zoom in.</span></p>`
       : `<section class="board">${v.order.map((id) => tileHTML(id)).join('')}</section>`;
 
     const side = `
@@ -1155,7 +1231,7 @@
     m.innerHTML = `<div class="mbox"><p>${text}</p><div class="row end">
       <button class="btn" data-m="no">Cancel</button>
       <button class="btn ${danger ? 'dangerbg' : 'primary'}" data-m="yes">${esc(yesLabel)}</button></div></div>`;
-    m.classList.remove('hidden');
+    m.classList.remove('hidden', 'peek');
     const close = () => { m.classList.add('hidden'); m.innerHTML = ''; };
     m.onclick = (e) => {
       const b = e.target.closest('[data-m]');
@@ -1246,6 +1322,13 @@
       case 'change': pickEditing = true; render(); break;
       case 'pickfor': hostCoverFor = b.dataset.id; render(); break;
       case 'player': openPlayer(b.dataset.id); break;
+      case 'gear-style': case 'gear-color': {
+        const mine = P(app.me) || {};
+        const gear = { style: act === 'gear-style' ? b.dataset.style : mine.style, color: act === 'gear-color' ? b.dataset.color : mine.color };
+        store.set('hb-gear', gear);
+        send({ a: 'gear', ...gear });
+        break;
+      }
       case 'timer': send({ a: 'settings', settings: { turnSeconds: Number(b.dataset.s) } }); break;
       case 'giveup': confirmBox('Give up and reveal your face? You\'ll be ranked after everyone who guessed.', 'Reveal my face', () => send({ a: 'giveup' }), true); break;
       case 'next': send({ a: 'next', turn: v.turnId }); break;
@@ -1284,6 +1367,13 @@
     setUrlRoom(null);
     render();
   }
+
+  // keep the home page table in the right place when the window changes size
+  let homeResize = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(homeResize);
+    homeResize = setTimeout(() => { if (app.screen === 'home' && use3D) window.Table3D.update(demoData()); }, 150);
+  });
 
   // when a phone comes back to this tab, check the connection right away
   document.addEventListener('visibilitychange', () => {

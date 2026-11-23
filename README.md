@@ -14,6 +14,11 @@ An online party guessing game in the style of Headbands. Everyone sees your card
 
 The host can change the turn timer, or switch it off, in the lobby or during a game.
 
+## Headbands and looking around
+- In the lobby, pick a headband style (plain, bow, cat ears, bunny ears, flowers, sweatband, stripes, bandana, spikes, horns or halo) and a colour.
+- During a game, move your mouse (or drag on a phone) to look around. Everyone sees your mannequin's head turn.
+- Click or tap a player to zoom in on their face. Your mannequin leans in, and everyone can see it.
+
 ## Good to know
 - No accounts or downloads. It works in any modern browser on phones and computers.
 - The person who created the game is the "host". Their page has to stay open, so if possible host from a computer. If the host refreshes, the game comes back.
