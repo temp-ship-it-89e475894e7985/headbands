@@ -22,6 +22,6 @@ An online version of the party game Headbands. Everyone sees your card except yo
 Open `words.js` and edit the lists, or copy a theme block to add a new theme.
 
 ## How it works (technical)
-A static site with no server of its own. Players connect directly to the host's browser over WebRTC using [PeerJS](https://peerjs.com) (MIT licence, bundled in `vendor/`) and its free public matchmaking/relay servers. The host keeps the game and sends each player a copy with their own word hidden.
+A static site with no server of its own. The host's browser keeps the game. Everyone exchanges messages through free public MQTT brokers (EMQX, HiveMQ and Mosquitto test servers) over secure WebSockets, using [MQTT.js](https://github.com/mqttjs/MQTT.js) (MIT licence, bundled in `vendor/`). All three are used at once and duplicate messages are ignored, so the game keeps working if one is down. The host sends each player a copy of the game with their own word hidden.
 
-To test locally with your own PeerJS server on port 9000, add `?local=1` to the URL.
+To test locally with your own MQTT-over-WebSocket brokers on ports 9001 and 9002, add `?local=1` to the URL.
