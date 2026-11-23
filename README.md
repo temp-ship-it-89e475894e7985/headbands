@@ -2,7 +2,7 @@
 
 An online party guessing game in the style of Headbands. Everyone sees your card except you, so ask yes/no questions to figure out who or what you are.
 
-**Play:** https://temp-ship-it-89e475894e7985.github.io/headbands/
+**Play:** https://facevalue.temp49558.workers.dev
 
 ## How to play
 1. One person clicks **Create a game** and sends the invite link (or the 4-letter code) to friends. Get on a voice call (Discord, FaceTime…).
