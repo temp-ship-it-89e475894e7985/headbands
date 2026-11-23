@@ -379,7 +379,7 @@
     v.players.forEach((p) => { delete p.key; });
     const amPlaying = st.order.includes(pid);
     const canSeeOwn = st.phase === 'over' || !amPlaying || H.done(pid);
-    if (!canSeeOwn && v.words[pid] != null) v.words[pid] = '•••';
+    if (!canSeeOwn && v.words[pid] != null) v.words[pid] = 'hidden';
     v.themeName = H.themeName();
     v.wordsReady = Object.keys(st.words);
     return v;
@@ -478,7 +478,7 @@
       let picker = pid;
       if (msg.for && isHost) picker = msg.for;
       const target = st.pickFor[picker];
-      const w = cleanWord(msg.word);
+      const w = window.Draw.sanitize(msg.drawing);
       if (!target || !w) return;
       st.words[target] = w;
       if (st.order.every((id) => st.words[id])) {
@@ -493,14 +493,14 @@
       const wasTurn = st.turnId === target;
       st.results.push({ id: target, how: 'got', turns: (st.turnsTaken[target] || 0) + (wasTurn ? 1 : 0) });
       const tp = H.player(target);
-      H.event(`${tp.name} got it! It was “${st.words[target]}”`, 'gotit');
+      H.event(`${tp.name} got it! 🎉`, 'gotit');
       if (!H.unfinished().length) hostGameOver();
       else if (wasTurn) hostNextTurn(false);
     } else if (a === 'giveup' && st.phase === 'playing') {
       if (!st.order.includes(pid) || H.done(pid)) return;
       const wasTurn = st.turnId === pid;
       st.results.push({ id: pid, how: 'gaveup', turns: (st.turnsTaken[pid] || 0) + (wasTurn ? 1 : 0) });
-      H.event(`${me.name} gave up. It was “${st.words[pid]}”`, 'gaveup');
+      H.event(`${me.name} gave up`, 'gaveup');
       if (!H.unfinished().length) hostGameOver();
       else if (wasTurn) hostNextTurn(false);
     } else if (a === 'next' && st.phase === 'playing') {
@@ -650,7 +650,9 @@
       if (lastTurnId !== null || lastPhase === 'picking') (v.turnId === you ? sounds.yourTurn : sounds.turn)();
     }
     lastTurnId = v.phase === 'playing' ? v.turnId : null;
+    const phaseChanged = lastPhase !== v.phase;
     lastPhase = v.phase;
+    if (phaseChanged) requestAnimationFrame(() => window.scrollTo(0, 0));
     keepAwake(v.phase === 'playing' || v.phase === 'picking');
     render();
   }
@@ -675,6 +677,7 @@
     else if (app.screen === 'game' && app.view) html = gameHTML();
     else html = connectingHTML();
     root.innerHTML = html;
+    attachPersistent();
 
     for (const id in values) { const el = document.getElementById(id); if (el && el.dataset.keep !== 'no') el.value = values[id]; }
     if (activeId) {
@@ -682,6 +685,19 @@
       if (el) { el.focus({ preventScroll: true }); if (sel && el.setSelectionRange) { try { el.setSelectionRange(sel[0], sel[1]); } catch {} } }
     }
     updateTimer();
+  }
+
+  function attachPersistent() {
+    const ps = document.getElementById('pad-slot');
+    if (ps) { const p = getPad(); ps.appendChild(p.el); requestAnimationFrame(() => p.fit()); }
+    if (!use3D) return;
+    const ss = document.getElementById('scene-slot');
+    if (ss && app.view) {
+      ss.appendChild(window.Table3D.el);
+      window.Table3D.update(sceneData());
+      window.Table3D.start();
+      requestAnimationFrame(() => window.Table3D.resize());
+    } else window.Table3D.stop();
   }
 
   function renderStatusOnly() {
@@ -720,10 +736,10 @@
         <summary>How to play</summary>
         <ol>
           <li>One person creates a game and shares the link or code. Hop on a voice call (Discord, FaceTime…).</li>
-          <li>The host picks a theme. Then each player secretly picks a word for another player's headband.</li>
-          <li>You see everyone's word — except your own.</li>
+          <li>The host picks a theme. Then each player secretly draws a word on another player's blank face — with your mouse or finger.</li>
+          <li>Everyone sits around a 3D table. You see everyone's face — except your own.</li>
           <li>On your turn, ask yes/no questions out loud (“Am I an animal?”). Everyone answers.</li>
-          <li>When someone guesses their word, anyone taps <b>Got it</b> on their card. First to guess wins!</li>
+          <li>When someone guesses their word, anyone taps that player and presses <b>They got it</b>. First to guess wins!</li>
         </ol>
       </details>
     </main>`;
@@ -786,6 +802,7 @@
     const themeOpts = Object.entries(window.THEMES).map(([k, t]) => `<option value="${k}" ${v.settings.theme === k ? 'selected' : ''}>${t.emoji} ${esc(t.name)}</option>`).join('')
       + `<option value="custom" ${v.settings.theme === 'custom' ? 'selected' : ''}>✏️ Make up your own…</option>`;
     return `
+    ${use3D ? '<div id="scene-slot" class="scene-slot lobby"></div>' : ''}
     <section class="panel">
       <h2>Invite your friends</h2>
       <p class="muted">Send them this link, or tell them the code <b class="code-chip">${esc(v.code)}</b></p>
@@ -830,36 +847,64 @@
     </section>`;
   }
 
-  // ----- picking words -----
+  // ----- picking words (drawing on faces) -----
+  let pad = null;
+  let padFor = null;          // whose face the pad is currently for (my target, or someone the host covers for)
+  let hostCoverFor = null;    // host drawing on behalf of an away player: that player's id
+  function getPad() {
+    if (!pad) pad = window.Draw.createPad(() => {});
+    return pad;
+  }
+  function faceImg(drawing, cls = 'faceimg', width = 360) {
+    if (!drawing || drawing === 'hidden') return `<div class="${cls} blankface"><span>?</span></div>`;
+    return `<img class="${cls}" alt="drawing" src="${window.Draw.toDataURL(drawing, width)}">`;
+  }
+
   function pickingHTML() {
     const v = app.view;
     const myTarget = v.pickFor[app.me];
-    const tp = myTarget && P(myTarget);
     const myPick = myTarget ? v.words[myTarget] : null;
     const pickers = Object.keys(v.pickFor);
     const hostMe = amHost();
     const theme = window.THEMES[v.settings.theme];
     const editing = !myPick || pickEditing;
 
+    // whose face are we drawing on right now?
+    let drawingFor = null, coverNote = '';
+    if (myTarget && editing) drawingFor = myTarget;
+    else if (hostMe && hostCoverFor && v.pickFor[hostCoverFor] && !v.wordsReady.includes(v.pickFor[hostCoverFor])) {
+      drawingFor = v.pickFor[hostCoverFor];
+      coverNote = `<p class="muted small">(${esc(P(hostCoverFor).name)} is away, so you're drawing for them)</p>`;
+    } else hostCoverFor = null;
+    if (padFor !== drawingFor) {
+      padFor = drawingFor;
+      const p = getPad();
+      if (drawingFor && drawingFor === myTarget && myPick && myPick !== 'hidden') p.set(myPick); else p.reset();
+    }
+
     let mine = '';
-    if (!myTarget) {
+    if (!myTarget && !drawingFor) {
       mine = `<section class="panel"><h2>Round in progress</h2><p class="muted">You joined mid-game, so you'll play next round. Hang tight!</p></section>`;
-    } else if (editing) {
+    } else if (drawingFor) {
+      const tp = P(drawingFor);
       mine = `
       <section class="panel pick">
         <p class="muted">Theme: <b>${themeLabel(v)}</b></p>
-        <h2>Pick a word for ${avatar(tp, 'sm')} <span style="color:${tp.color}">${esc(tp.name)}</span></h2>
-        <p class="muted small">They'll wear it on their headband. Everyone sees it except them — so keep it secret!</p>
-        <input id="word" class="inp big" maxlength="40" placeholder="Type a word…" autocomplete="off" value="${esc(myPick || '')}">
-        ${theme && theme.words.length ? `<div class="ideas">${pickIdeas.map((w) => `<button class="idea" data-act="idea" data-w="${esc(w)}">${esc(w)}</button>`).join('')}
-          <button class="idea dice" data-act="ideas">🎲 More ideas</button></div>` : ''}
-        <button class="btn big primary" data-act="lock">🔒 Lock it in</button>
+        <h2>Draw a word on ${avatar(tp, 'sm')} <span style="color:${tp.color}">${esc(tp.name)}</span>'s face</h2>
+        ${coverNote}
+        <p class="muted small">Write it big and clear! Everyone will see it on their head — except them.</p>
+        <div id="pad-slot"></div>
+        ${theme && theme.words.length ? `<div class="ideas"><span class="muted small">Need an idea?</span> ${pickIdeas.map((w) => `<span class="idea">${esc(w)}</span>`).join('')}
+          <button class="idea dice" data-act="ideas">🎲</button></div>` : ''}
+        <button class="btn big primary" data-act="lock">🔒 Put it on their face</button>
       </section>`;
     } else {
+      const tp = P(myTarget);
       mine = `
       <section class="panel pick done">
-        <h2>✅ You picked <span class="bigword">${esc(myPick)}</span> for ${esc(tp.name)}</h2>
-        <button class="btn link" data-act="change">Change my word</button>
+        <h2>✅ You drew this on ${esc(tp.name)}'s face</h2>
+        ${faceImg(myPick, 'faceimg big')}
+        <button class="btn link" data-act="change">Change my drawing</button>
       </section>`;
     }
 
@@ -868,8 +913,8 @@
       const done = v.wordsReady.includes(v.pickFor[pid]);
       return `<li class="${p.online ? '' : 'off'}">${avatar(p)} <span class="pn">${esc(p.name)}</span>
         <span class="muted small">→ ${esc(t ? t.name : '?')}</span>
-        ${done ? '<span class="ok">✓ ready</span>' : '<span class="muted small">choosing…</span>'}
-        ${hostMe && !done && !isMe(pid) && !p.online ? `<button class="btn tiny" data-act="pickfor" data-id="${pid}">Pick for them</button>` : ''}
+        ${done ? '<span class="ok">✓ ready</span>' : '<span class="muted small">drawing…</span>'}
+        ${hostMe && !done && !isMe(pid) && !p.online && (!myTarget || (myPick && !pickEditing)) ? `<button class="btn tiny" data-act="pickfor" data-id="${pid}">Draw for them</button>` : ''}
       </li>`;
     }).join('');
 
@@ -884,7 +929,60 @@
   let pickEditing = false;
   function refreshIdeas() {
     const v = app.view; const t = v && window.THEMES[v.settings.theme];
-    pickIdeas = t ? shuffle(t.words).slice(0, 4) : [];
+    pickIdeas = t ? shuffle(t.words).slice(0, 3) : [];
+  }
+
+  // ----- the 3D table -----
+  const use3D = !!(window.Table3D && window.Table3D.supported);
+  function sceneData() {
+    const v = app.view;
+    const ids = v.phase === 'lobby' ? v.players.map((p) => p.id) : v.order;
+    const got = v.results.filter((r) => r.how === 'got').map((r) => r.id);
+    return {
+      me: app.me,
+      spectator: v.phase !== 'lobby' && !v.order.includes(app.me),
+      players: ids.map((id) => {
+        const p = P(id) || { name: '?', color: '#888', online: false };
+        const r = result(id);
+        const w = v.words[id];
+        return {
+          id, name: p.name, color: p.color, online: p.online,
+          face: v.phase === 'playing' || v.phase === 'over' ? (w && w !== 'hidden' ? w : null) : null,
+          isTurn: v.phase === 'playing' && v.turnId === id,
+          done: r ? r.how : null,
+          place: r && r.how === 'got' ? got.indexOf(id) + 1 : 0,
+        };
+      }),
+    };
+  }
+  if (use3D) window.Table3D.onPick((id) => openPlayer(id));
+
+  function openPlayer(id) {
+    const v = app.view; if (!v) return;
+    const p = P(id); if (!p) return;
+    const r = result(id);
+    const me = isMe(id);
+    const canGot = v.phase === 'playing' && v.order.includes(id) && !r && !me;
+    const w = v.words[id];
+    const status = r ? (r.how === 'got' ? '✅ Guessed it!' : r.how === 'gaveup' ? '🏳️ Gave up' : '') : v.phase === 'playing' ? `Turns so far: ${v.turnsTaken[id] || 0}` : '';
+    const pickerId = Object.keys(v.pickFor).find((k) => v.pickFor[k] === id);
+    const picker = pickerId && P(pickerId);
+    const m = $('#modal');
+    m.innerHTML = `<div class="mbox player-pop">
+      <div class="pp-head">${avatar(p, 'lg')}<div><b class="pp-name">${esc(p.name)}${me ? ' (you)' : ''}</b><div class="muted small">${status}${p.online ? '' : ' · away'}</div></div></div>
+      ${me && w === 'hidden' ? '<div class="faceimg big blankface"><span>?</span></div><p class="muted">That\'s you! Your face is hidden from you — ask questions to figure it out.</p>'
+        : w ? `${faceImg(w, 'faceimg big', 520)}${picker ? `<p class="muted small">drawn by ${esc(picker.name)}</p>` : ''}` : ''}
+      <div class="row end">
+        <button class="btn" data-m="no">Close</button>
+        ${canGot ? '<button class="btn good" data-m="yes">✓ They got it!</button>' : ''}
+      </div></div>`;
+    m.classList.remove('hidden');
+    const close = () => { m.classList.add('hidden'); m.innerHTML = ''; if (use3D) window.Table3D.focus(null); };
+    m.onclick = (e) => {
+      const b = e.target.closest('[data-m]');
+      if (e.target === m || (b && b.dataset.m === 'no')) close();
+      else if (b && b.dataset.m === 'yes') { close(); send({ a: 'gotit', target: id }); }
+    };
   }
 
   // ----- playing -----
@@ -908,50 +1006,53 @@
         <div class="timer ${v.settings.turnSeconds ? '' : 'hidden'}" id="timer">--</div>
       </section>` : '';
 
-    const tiles = v.order.map((id) => tileHTML(id)).join('');
+    const chips = v.order.map((id) => {
+      const p = P(id); if (!p) return '';
+      const r = result(id);
+      const got = v.results.filter((x) => x.how === 'got');
+      const place = r && r.how === 'got' ? got.indexOf(r) + 1 : 0;
+      const badge = r ? (r.how === 'got' ? (place === 1 ? '🥇' : place === 2 ? '🥈' : place === 3 ? '🥉' : '✅') : '🏳️') : '';
+      return `<button class="pchip ${v.turnId === id ? 'turnnow' : ''} ${p.online ? '' : 'off'}" data-act="player" data-id="${id}" style="--c:${p.color}">
+        ${avatar(p, 'sm')}<span>${esc(p.name)}${isMe(id) ? ' (you)' : ''}</span>${badge ? `<span>${badge}</span>` : ''}</button>`;
+    }).join('');
     const watchers = v.players.filter((p) => !v.order.includes(p.id));
+
+    const board = use3D
+      ? `<div id="scene-slot" class="scene-slot"></div><div class="pchips">${chips}</div>
+         <p class="muted small center-t">Tap a player to see their face up close${amPlaying ? '' : ''} or mark that they got it.</p>`
+      : `<section class="board">${v.order.map((id) => tileHTML(id)).join('')}</section>`;
 
     return `
     <div class="theme-line">Theme: <b>${themeLabel(v)}</b></div>
     ${banner}
-    <section class="board">${tiles}</section>
+    ${board}
     ${!amPlaying ? '<p class="muted center-t">You\'re watching this round — you\'ll play next round.</p>' : ''}
     ${watchers.length ? `<p class="muted small center-t">Watching: ${watchers.map((p) => esc(p.name)).join(', ')}</p>` : ''}
+    ${amPlaying && myRes ? `<div class="mine-face"><span>Your face said:</span>${faceImg(v.words[app.me], 'faceimg small', 240)}</div>` : ''}
     <section class="actions">
       ${myTurn ? '<button class="btn big primary" data-act="next">✋ Done — pass the turn</button>' : ''}
       ${!myTurn && hostMe ? '<button class="btn" data-act="next">⏭ Skip to next turn</button>' : ''}
-      ${amPlaying && !myRes ? '<button class="btn link" data-act="giveup">I give up — show my word</button>' : ''}
+      ${amPlaying && !myRes ? '<button class="btn link" data-act="giveup">I give up — show my face</button>' : ''}
       ${hostMe ? '<button class="btn link danger" data-act="end">End game</button>' : ''}
     </section>`;
   }
 
+  // flat fallback for devices without 3D
   function tileHTML(id) {
     const v = app.view;
     const p = P(id); if (!p) return '';
     const me = isMe(id);
     const res = result(id);
     const word = v.words[id];
-    const hidden = me && !res;
     const isTurn = v.turnId === id;
-    const pickerId = Object.keys(v.pickFor).find((k) => v.pickFor[k] === id);
-    const picker = pickerId && P(pickerId);
-    let cardInner, cardCls = '';
-    if (hidden) { cardInner = '<span class="q">?</span>'; cardCls = 'hidden-card'; }
-    else cardInner = `<span class="w">${esc(word)}</span>`;
-    if (res) cardCls += res.how === 'got' ? ' got' : ' gave';
     const place = res && res.how === 'got' ? v.results.filter((r) => r.how === 'got').indexOf(res) + 1 : 0;
     return `
-    <div class="tile ${isTurn ? 'turnnow' : ''} ${p.online ? '' : 'off'} ${me ? 'me' : ''}" style="--c:${p.color}">
-      <div class="hb">
-        <div class="card ${cardCls}">${cardInner}</div>
-        <div class="head"><div class="band"></div><span class="face">${esc(p.name.slice(0, 1).toUpperCase())}</span></div>
-        ${place ? `<div class="medal">${place === 1 ? '🥇' : place === 2 ? '🥈' : place === 3 ? '🥉' : '✓'}</div>` : ''}
-        ${res && res.how === 'gaveup' ? '<div class="medal">🏳️</div>' : ''}
-      </div>
+    <div class="tile ${isTurn ? 'turnnow' : ''} ${p.online ? '' : 'off'} ${me ? 'me' : ''}" style="--c:${p.color}" data-act="player" data-id="${id}">
+      ${faceImg(word, 'faceimg')}
+      ${place ? `<div class="medal">${place === 1 ? '🥇' : place === 2 ? '🥈' : place === 3 ? '🥉' : '✓'}</div>` : ''}
+      ${res && res.how === 'gaveup' ? '<div class="medal">🏳️</div>' : ''}
       <div class="pname">${esc(p.name)}${me ? ' <i>(you)</i>' : ''}</div>
       <div class="pmeta">${p.online ? '' : '<span class="warn">away · </span>'}${res ? (res.how === 'got' ? 'Guessed it!' : 'Gave up') : `Turns: ${v.turnsTaken[id] || 0}`}</div>
-      ${!me && !res ? `<button class="btn tiny good" data-act="gotit" data-id="${id}">✓ Got it</button>` : ''}
-      ${!hidden && picker && !res ? `<div class="by">picked by ${esc(picker.name)}</div>` : ''}
     </div>`;
   }
 
@@ -965,11 +1066,12 @@
       const pickerId = Object.keys(v.pickFor).find((k) => v.pickFor[k] === r.id);
       const picker = pickerId && P(pickerId);
       const medal = r.how === 'got' ? (i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`) : r.how === 'gaveup' ? '🏳️' : '⏹';
+      const turns = Math.max(1, r.turns);
       return `<li>
-        <span class="rk">${medal}</span>${avatar(p)}
-        <div class="rinfo"><b>${esc(p.name)}</b>${isMe(r.id) ? ' <i>(you)</i>' : ''}
-          <div class="muted small">was <b class="wordc">${esc(v.words[r.id] || '?')}</b>${picker ? ` · picked by ${esc(picker.name)}` : ''}</div></div>
-        <span class="muted small">${r.how === 'got' ? `${Math.max(1, r.turns)} turn${Math.max(1, r.turns) === 1 ? '' : 's'}` : r.how === 'gaveup' ? 'gave up' : 'didn\'t finish'}</span>
+        <span class="rk">${medal}</span>
+        <div class="rinfo"><div><b>${esc(p.name)}</b>${isMe(r.id) ? ' <i>(you)</i>' : ''}</div>
+          <div class="muted small">${r.how === 'got' ? `${turns} turn${turns === 1 ? '' : 's'}` : r.how === 'gaveup' ? 'gave up' : 'didn\'t finish'}${picker ? ` · drawn by ${esc(picker.name)}` : ''}</div></div>
+        ${faceImg(v.words[r.id], 'faceimg small', 240)}
       </li>`;
     }).join('');
     const winner = got[0] && P(got[0].id);
@@ -1088,29 +1190,19 @@
       case 'home': goHome(); break;
       case 'kick': send({ a: 'kick', target: b.dataset.id }); break;
       case 'start': send({ a: 'start' }); break;
-      case 'idea': { const w = document.getElementById('word'); if (w) { w.value = b.dataset.w; w.focus(); } break; }
       case 'ideas': refreshIdeas(); render(); break;
       case 'lock': {
-        const w = cleanWord((document.getElementById('word') || {}).value);
-        if (!w) { toast('Type a word first'); return; }
-        pickEditing = false;
-        send({ a: 'word', word: w });
+        const p = getPad();
+        if (p.isEmpty()) { toast('Draw something first!'); return; }
+        const drawing = p.get();
+        if (hostCoverFor && padFor !== v.pickFor[app.me]) { send({ a: 'word', for: hostCoverFor, drawing }); hostCoverFor = null; }
+        else { pickEditing = false; send({ a: 'word', drawing }); }
         break;
       }
       case 'change': pickEditing = true; render(); break;
-      case 'pickfor': {
-        const pid = b.dataset.id; const t = P(v.pickFor[pid]);
-        const theme = window.THEMES[v.settings.theme] || window.THEMES.anything;
-        const w = theme.words[rand(theme.words.length)];
-        confirmBox(`${esc(P(pid).name)} is away. Give ${esc(t.name)} a random word from the theme?`, 'Pick for them', () => send({ a: 'word', for: pid, word: w }));
-        break;
-      }
-      case 'gotit': {
-        const p = P(b.dataset.id);
-        confirmBox(`Did <b>${esc(p.name)}</b> guess <b>“${esc(v.words[p.id])}”</b>?`, 'Yes, they got it!', () => send({ a: 'gotit', target: p.id }));
-        break;
-      }
-      case 'giveup': confirmBox('Give up and see your word? You\'ll finish at the bottom.', 'Show my word', () => send({ a: 'giveup' }), true); break;
+      case 'pickfor': hostCoverFor = b.dataset.id; render(); break;
+      case 'player': openPlayer(b.dataset.id); break;
+      case 'giveup': confirmBox('Give up and see what\'s on your face? You\'ll finish at the bottom.', 'Show my face', () => send({ a: 'giveup' }), true); break;
       case 'next': send({ a: 'next', turn: v.turnId }); break;
       case 'end': confirmBox(v.phase === 'picking' ? 'Cancel this round and go back to the lobby?' : 'End the game now and show results?', v.phase === 'picking' ? 'Cancel round' : 'End game', () => send({ a: 'end' }), true); break;
       case 'again': send({ a: 'again' }); break;
@@ -1162,7 +1254,7 @@
   let ideasRound = null;
   render = function () {
     if (app.view && app.view.phase === 'picking' && ideasRound !== `${app.view.round}-${app.view.settings.theme}`) {
-      ideasRound = `${app.view.round}-${app.view.settings.theme}`; refreshIdeas(); pickEditing = false;
+      ideasRound = `${app.view.round}-${app.view.settings.theme}`; refreshIdeas(); pickEditing = false; padFor = null; hostCoverFor = null; if (pad) pad.reset();
     }
     if (app.view && app.view.phase !== 'picking') ideasRound = null;
     _render();
