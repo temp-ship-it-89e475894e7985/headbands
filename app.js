@@ -881,7 +881,7 @@
         ${use3D ? '<div id="scene-slot" class="hero-scene" aria-hidden="true"></div><div class="hero-shade"></div>' : ''}
         <div class="hero-content">
           ${logoHTML()}
-          <p class="lede">The party game where everyone can read your forehead but you. Draw a word on a friend's face, then take turns asking yes-or-no questions to work out your own.</p>
+          <p class="lede">The party game where everyone can read your face but you. You'll write a secret word on another player's blank face, and someone writes one on yours. Take turns asking yes-or-no questions to figure out what it says.</p>
           <div class="sheet">
             <label class="lbl" for="name">Your name</label>
             <input id="name" class="inp" maxlength="16" autocomplete="nickname" placeholder="What should we call you?" value="${esc(app.name)}">
