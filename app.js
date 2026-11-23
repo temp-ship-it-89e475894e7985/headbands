@@ -817,7 +817,7 @@
     else if (app.screen === 'game' && app.view) html = gameHTML();
     else html = connectingHTML();
     root.innerHTML = html;
-    document.body.classList.toggle('light', app.screen === 'home');
+    document.body.classList.add('light'); // one light theme everywhere
     syncHum();
     for (const sel in scrolls) { const el = root.querySelector(sel); if (el) el.scrollTop = scrolls[sel]; }
     attachPersistent();
