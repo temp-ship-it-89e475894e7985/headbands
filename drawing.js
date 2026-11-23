@@ -113,7 +113,7 @@
       <div class="pad-tools">
         <div class="swatches">${COLORS.map((c, i) => `<button class="sw ${i === 0 ? 'on' : ''}" data-c="${i}" style="--sw:${c}" aria-label="Colour ${i + 1}"></button>`).join('')}</div>
         <div class="sizes">${SIZES.map((s, i) => `<button class="sz ${i === 1 ? 'on' : ''}" data-w="${i}" aria-label="Pen size ${i + 1}"><span style="width:${6 + i * 6}px;height:${6 + i * 6}px"></span></button>`).join('')}</div>
-        <div class="pad-btns"><button class="btn tiny" data-pad="undo">↶ Undo</button><button class="btn tiny" data-pad="clear">🗑 Clear</button></div>
+        <div class="pad-btns"><button class="btn sm" data-pad="undo">Undo</button><button class="btn sm" data-pad="clear">Clear</button></div>
       </div>`;
     const canvas = wrap.querySelector('canvas');
     const hint = wrap.querySelector('.pad-hint');

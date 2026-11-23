@@ -8,7 +8,7 @@
   'use strict';
   const T = window.THREE;
   const supported = (() => {
-    if (!T) return false;
+    if (!T || new URLSearchParams(location.search).has('no3d')) return false;
     try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch { return false; }
   })();
   if (!supported) { window.Table3D = { supported: false }; return; }
@@ -26,40 +26,44 @@
   el.appendChild(hint);
 
   const scene = new T.Scene();
-  scene.background = new T.Color(0x2a1650);
-  scene.fog = new T.Fog(0x2a1650, 12, 30);
+  scene.background = new T.Color(0x11241f);
+  scene.fog = new T.Fog(0x11241f, 9, 26);
   const camera = new T.PerspectiveCamera(55, 1, 0.05, 100);
   camera.rotation.order = 'YXZ';
 
   // lights
-  scene.add(new T.HemisphereLight(0xfff4e6, 0x3b2a6b, 1.1));
-  const sun = new T.DirectionalLight(0xffffff, 1.4);
+  scene.add(new T.HemisphereLight(0xfff1dc, 0x16302a, 0.9));
+  const sun = new T.DirectionalLight(0xfff4e6, 1.1);
   sun.position.set(3, 8, 4);
   scene.add(sun);
-  const lamp = new T.PointLight(0xffd59a, 18, 12, 2);
+  const lamp = new T.PointLight(0xffd59a, 26, 12, 2);
   lamp.position.set(0, 3.2, 0);
   scene.add(lamp);
 
   // room
-  const floor = new T.Mesh(new T.CircleGeometry(16, 48), new T.MeshStandardMaterial({ color: 0x4a2f7a, roughness: 0.95 }));
+  const floor = new T.Mesh(new T.CircleGeometry(16, 48), new T.MeshStandardMaterial({ color: 0x14302a, roughness: 1 }));
   floor.rotation.x = -Math.PI / 2;
   scene.add(floor);
-  const rug = new T.Mesh(new T.CircleGeometry(1, 48), new T.MeshStandardMaterial({ color: 0x7b4fc0, roughness: 1 }));
+  const rug = new T.Mesh(new T.CircleGeometry(1, 48), new T.MeshStandardMaterial({ color: 0x1a3b33, roughness: 1 }));
   rug.rotation.x = -Math.PI / 2; rug.position.y = 0.005;
   scene.add(rug);
-  const lampShade = new T.Mesh(new T.ConeGeometry(0.45, 0.35, 32, 1, true), new T.MeshStandardMaterial({ color: 0xffd43b, emissive: 0xffb020, emissiveIntensity: 0.6, side: T.DoubleSide }));
+  const lampShade = new T.Mesh(new T.ConeGeometry(0.45, 0.35, 32, 1, true), new T.MeshStandardMaterial({ color: 0x23302c, roughness: 0.4, metalness: 0.3, side: T.DoubleSide }));
   lampShade.position.set(0, 3.4, 0);
   scene.add(lampShade);
+  const bulb = new T.Mesh(new T.SphereGeometry(0.1, 16, 12), new T.MeshBasicMaterial({ color: 0xfff1c9 }));
+  bulb.position.set(0, 3.25, 0);
+  scene.add(bulb);
   const cord = new T.Mesh(new T.CylinderGeometry(0.01, 0.01, 3, 6), new T.MeshBasicMaterial({ color: 0x222222 }));
   cord.position.set(0, 5.05, 0);
   scene.add(cord);
 
   const tableGroup = new T.Group();
   scene.add(tableGroup);
-  const woodMat = new T.MeshStandardMaterial({ color: 0x9c6b3f, roughness: 0.6 });
-  const tableTop = new T.Mesh(new T.CylinderGeometry(1, 1, 0.08, 64), woodMat);
+  const woodMat = new T.MeshStandardMaterial({ color: 0x5a3c26, roughness: 0.55 });
+  const feltMat = new T.MeshStandardMaterial({ color: 0x1f6b52, roughness: 0.95 });
+  const tableTop = new T.Mesh(new T.CylinderGeometry(1, 1, 0.08, 64), [woodMat, feltMat, woodMat]);
   tableTop.position.y = 0.78;
-  const tableEdge = new T.Mesh(new T.TorusGeometry(1, 0.045, 12, 64), new T.MeshStandardMaterial({ color: 0x7a4f2b, roughness: 0.6 }));
+  const tableEdge = new T.Mesh(new T.TorusGeometry(1, 0.045, 12, 64), woodMat);
   tableEdge.rotation.x = Math.PI / 2; tableEdge.position.y = 0.78;
   const tableLeg = new T.Mesh(new T.CylinderGeometry(0.12, 0.35, 0.74, 24), woodMat);
   tableLeg.position.y = 0.37;
@@ -68,7 +72,7 @@
   // ---------- one mannequin ----------
   const shared = {
     skin: new T.MeshStandardMaterial({ color: SKIN, roughness: 0.55 }),
-    chair: new T.MeshStandardMaterial({ color: 0x5c3b22, roughness: 0.7 }),
+    chair: new T.MeshStandardMaterial({ color: 0x2b2420, roughness: 0.6 }),
     torso: new T.CapsuleGeometry(0.24, 0.42, 6, 16),
     arm: new T.CapsuleGeometry(0.075, 0.42, 4, 10),
     head: new T.SphereGeometry(0.36, 40, 28),
@@ -85,24 +89,25 @@
   function labelSprite(text, color, extra = '') {
     const c = document.createElement('canvas');
     const ctx = c.getContext('2d');
-    const font = '800 44px ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif';
+    const font = '600 40px Archivo, "Helvetica Neue", Arial, sans-serif';
+    const small = '500 32px Archivo, "Helvetica Neue", Arial, sans-serif';
     ctx.font = font;
-    const label = extra ? `${extra} ${text}` : text;
-    const w = Math.ceil(ctx.measureText(label).width) + 48;
-    c.width = Math.max(120, w); c.height = 72;
-    ctx.font = font;
-    ctx.fillStyle = color;
-    const r = 34;
-    ctx.beginPath(); ctx.moveTo(r, 2); ctx.arcTo(c.width - 2, 2, c.width - 2, c.height - 2, r); ctx.arcTo(c.width - 2, c.height - 2, 2, c.height - 2, r);
-    ctx.arcTo(2, c.height - 2, 2, 2, r); ctx.arcTo(2, 2, c.width - 2, 2, r); ctx.closePath(); ctx.fill();
-    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.stroke();
-    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 4;
-    ctx.fillText(label, c.width / 2, c.height / 2 + 2);
+    const tw = ctx.measureText(text).width;
+    ctx.font = small;
+    const ew = extra ? ctx.measureText(extra).width + 16 : 0;
+    c.width = Math.ceil(tw + ew + 92); c.height = 68;
+    const r = 12;
+    ctx.fillStyle = 'rgba(15, 40, 35, 0.88)';
+    ctx.beginPath(); ctx.moveTo(r, 0); ctx.arcTo(c.width, 0, c.width, c.height, r); ctx.arcTo(c.width, c.height, 0, c.height, r);
+    ctx.arcTo(0, c.height, 0, 0, r); ctx.arcTo(0, 0, c.width, 0, r); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(34, c.height / 2, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.textBaseline = 'middle';
+    ctx.font = font; ctx.fillStyle = '#e7efea'; ctx.fillText(text, 58, c.height / 2 + 2);
+    if (extra) { ctx.font = small; ctx.fillStyle = '#a3b8ae'; ctx.fillText(extra, 58 + tw + 16, c.height / 2 + 2); }
     const tex = new T.CanvasTexture(c); tex.colorSpace = T.SRGBColorSpace;
-    const s = new T.Sprite(new T.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+    const s = new T.Sprite(new T.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
     s.renderOrder = 10;
-    const h = 0.2; s.scale.set(h * c.width / c.height, h, 1);
+    const h = 0.1; s.scale.set(h * c.width / c.height, h, 1); // same size on screen near or far
     return s;
   }
 
@@ -136,7 +141,7 @@
     body.add(headG);
     g.add(body);
     // turn ring on the floor
-    const ring = new T.Mesh(shared.ring, new T.MeshBasicMaterial({ color: 0xffd43b, transparent: true, opacity: 0.9 }));
+    const ring = new T.Mesh(shared.ring, new T.MeshBasicMaterial({ color: 0xf4c542, transparent: true, opacity: 0.9 }));
     ring.rotation.x = Math.PI / 2; ring.position.set(0, 0.03, 0.05);
     ring.visible = false;
     g.add(ring);
@@ -212,17 +217,18 @@
         fig.faceMat.needsUpdate = true;
       }
       // name tag
-      const badge = p.done === 'got' ? (p.place === 1 ? '🥇' : p.place === 2 ? '🥈' : p.place === 3 ? '🥉' : '✅') : p.done === 'gaveup' ? '🏳️' : p.online ? '' : '💤';
+      const ord = (n) => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
+      const badge = p.done === 'got' ? ord(p.place) : p.done === 'gaveup' ? 'gave up' : p.online ? '' : 'away';
       const tk = p.name + '|' + p.color + '|' + badge + '|' + (p.id === me);
       if (tk !== fig.tagKey) {
         fig.tagKey = tk;
         if (fig.tag) { fig.group.remove(fig.tag); fig.tag.material.map.dispose(); fig.tag.material.dispose(); }
-        fig.tag = labelSprite(p.name + (p.id === me ? ' (you)' : ''), p.color, badge);
+        fig.tag = labelSprite(p.name, p.color, badge);
         fig.tag.position.set(0, 2.42, 0);
         if (p.id === me && !spectator) fig.tag.visible = false;
         fig.group.add(fig.tag);
       }
-      fig.ring.visible = !!p.isTurn;
+      fig.ring.visible = !!p.isTurn && (spectator || p.id !== me);
       const op = p.online ? 1 : 0.45;
       fig.shirt.transparent = op < 1; fig.shirt.opacity = op;
     }
@@ -328,6 +334,7 @@
     if (!running) return;
     requestAnimationFrame(frame);
     if (!el.isConnected || document.hidden) return;
+    if (t - last < 30) return; // about 30 frames a second is plenty and saves battery
     const dt = Math.min(0.05, (t - last) / 1000 || 0.016); last = t;
     const s = 1 - Math.pow(0.001, dt);
     view.yaw += (view.tYaw - view.yaw) * s;
@@ -366,6 +373,8 @@
   function stop() { running = false; }
   if ('ResizeObserver' in window) new ResizeObserver(resize).observe(el);
   window.addEventListener('resize', resize);
+
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { for (const f of figures.values()) f.tagKey = ''; if (lastData) update(lastData); });
 
   window.Table3D = {
     supported: true,

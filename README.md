@@ -10,7 +10,9 @@ An online version of the party game Headbands. Everyone sees your card except yo
 3. Each player is secretly given someone else and **draws a word on their blank face** with the mouse, or a finger on a phone. The theme offers ideas.
 4. Everyone sits around a **3D table** as a mannequin. You see the table from your own seat, so you see everyone's face except your own. Drag to look around, scroll or pinch to zoom, and tap a player to see their face up close.
 5. On your turn, ask yes/no questions out loud. When you're done, tap **Pass the turn**. If there's a timer, the turn passes on its own.
-6. When someone guesses their word, anyone else taps that player and presses **They got it**. First to guess wins!
+6. When someone guesses their word, anyone else taps that player and confirms they guessed it. First to guess wins!
+
+The host can change the turn timer, or switch it off, in the lobby or during a game.
 
 ## Good to know
 - No accounts or downloads. It works in any modern browser on phones and computers.

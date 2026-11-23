@@ -27,7 +27,7 @@
   };
 
   const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  const COLORS = ['#ff6b6b', '#ffa94d', '#ffd43b', '#69db7c', '#38d9a9', '#4dabf7', '#748ffc', '#da77f2', '#f783ac', '#a9e34b', '#63e6be', '#ff8787'];
+  const COLORS = ['#e8a33d', '#5aa9e6', '#e5676b', '#7fc8a9', '#b38cd9', '#f2d16b', '#ef8fb1', '#6c8ef5', '#a3c95f', '#5fc4c9', '#d98b5f', '#c4c9c6'];
   const MAX_PLAYERS = 12;
   const params = new URLSearchParams(location.search);
   const LOCAL = params.has('local'); // for testing with a server on this computer
@@ -333,6 +333,7 @@
     const st = host.state;
     const name = cleanName(msg.name) || 'Player';
     let p = H.byKey(key);
+    if (p && p.online) { hostSendTo(p); return; } // already seated: just send them the game again
     if (!p) {
       // same name as someone who dropped out? Let them take their seat back.
       p = st.players.find((x) => !x.online && !x.isHost && x.name.toLowerCase() === name.toLowerCase());
@@ -346,7 +347,7 @@
       const color = COLORS.find((c) => !used.has(c)) || COLORS[rand(COLORS.length)];
       p = { id: 'p' + st.nextId++, key, name: finalName, color, online: true, isHost: false, playing: false };
       st.players.push(p);
-      H.event(st.phase === 'lobby' ? `${finalName} joined` : `${finalName} is watching (joins next round)`, 'join');
+      H.event(st.phase === 'lobby' ? `${finalName} joined` : `${finalName} is watching and will play next round`, 'join');
     } else if (!p.online) {
       H.event(`${p.name} is back`, 'join');
     }
@@ -402,7 +403,7 @@
       for (const p of st.players) {
         if (p.key === myKey || !p.online) continue;
         const seen = host.lastSeen.get(p.key) || 0;
-        if (now() - seen > 15000) { p.online = false; changed = true; }
+        if (now() - seen > 20000) { p.online = false; changed = true; }
       }
       if (changed) hostChanged();
       Net.pub(T.all(app.code), { t: 'ping', v: st.v, remaining: remainingMs() });
@@ -440,7 +441,7 @@
     for (const id of st.order) if (!H.done(id)) st.results.push({ id, how: 'unfinished', turns: st.turnsTaken[id] || 0 });
     st.phase = 'over';
     st.turnId = null; st.turnEndsAt = 0;
-    H.event(endedEarly ? 'The host ended the game' : 'Everyone\'s done!', 'over');
+    H.event(endedEarly ? 'The host ended the game' : 'Everyone has finished', 'over');
   }
 
   function hostAction(pid, msg) {
@@ -450,7 +451,13 @@
     const isHost = me.isHost;
     const a = msg.a;
 
-    if (a === 'settings' && isHost && st.phase === 'lobby') {
+    if (a === 'settings' && isHost && st.phase === 'playing') {
+      const s = msg.settings || {};
+      if (!TIMER_CHOICES.some(([v]) => v === s.turnSeconds)) return;
+      st.settings.turnSeconds = s.turnSeconds;
+      st.turnEndsAt = s.turnSeconds ? now() + s.turnSeconds * 1000 : 0;
+      H.event(s.turnSeconds ? `Turn timer set to ${s.turnSeconds} seconds` : 'Turn timer turned off', '');
+    } else if (a === 'settings' && isHost && st.phase === 'lobby') {
       const s = msg.settings || {};
       if (s.theme && (window.THEMES[s.theme] || s.theme === 'custom')) st.settings.theme = s.theme;
       if (typeof s.customTheme === 'string') st.settings.customTheme = s.customTheme.trim().slice(0, 40);
@@ -472,7 +479,7 @@
       st.order = shuffle(ids);
       st.players.forEach((p) => { p.playing = ids.includes(p.id); });
       st.phase = 'picking';
-      H.event('Pick a word for your player!', 'start');
+      H.event('Time to draw', 'start');
     } else if (a === 'word' && st.phase === 'picking') {
       // a player picks for their target; the host may pick on behalf of someone who left
       let picker = pid;
@@ -485,7 +492,7 @@
         st.phase = 'playing';
         st.turnIdx = -1; st.turnId = null;
         hostNextTurn(false);
-        H.event('Everyone has a word. Let\'s play!', 'go');
+        H.event('Everyone has a face. Start asking.', 'go');
       }
     } else if (a === 'gotit' && st.phase === 'playing') {
       const target = msg.target;
@@ -493,7 +500,7 @@
       const wasTurn = st.turnId === target;
       st.results.push({ id: target, how: 'got', turns: (st.turnsTaken[target] || 0) + (wasTurn ? 1 : 0) });
       const tp = H.player(target);
-      H.event(`${tp.name} got it! 🎉`, 'gotit');
+      H.event(`${tp.name} guessed it`, 'gotit');
       if (!H.unfinished().length) hostGameOver();
       else if (wasTurn) hostNextTurn(false);
     } else if (a === 'giveup' && st.phase === 'playing') {
@@ -518,7 +525,7 @@
       st.turnId = null; st.turnEndsAt = 0;
       st.players = st.players.filter((p) => p.online || p.isHost);
       st.players.forEach((p) => { p.playing = false; });
-      H.event('New round! Waiting for the host to start', '');
+      H.event('New round', '');
     } else return;
     hostChanged();
   }
@@ -546,9 +553,12 @@
     setUrlRoom(code);
     render();
     client.everConnected = false; client.v = 0; client.netTime = 0; client.lastHost = 0;
+    let lastN = 0;
     Net.statusCb = (n) => {
       if (app.role !== 'client') return;
-      if (n > 0) clientHello();
+      // only speak up when we go from no connection to some connection
+      if (n > 0 && lastN === 0) { if (client.everConnected) Net.pub(T.up(app.code), { t: 'resync', key: myKey }); else clientHello(); }
+      lastN = n;
     };
     Net.start(clientOnMsg);
     Net.sub(T.down(code, myKey));
@@ -670,6 +680,10 @@
     const values = {};
     root.querySelectorAll('input[id], textarea[id]').forEach((el) => { values[el.id] = el.value; });
 
+    // keep scroll positions inside the panels when the screen is redrawn
+    const scrolls = {};
+    for (const sel of ['.side', '.stage']) { const el = root.querySelector(sel); if (el) scrolls[sel] = el.scrollTop; }
+    window.__renders = (window.__renders || 0) + 1;
     let html = '';
     if (app.screen === 'home') html = homeHTML();
     else if (app.screen === 'connecting') html = connectingHTML();
@@ -677,6 +691,7 @@
     else if (app.screen === 'game' && app.view) html = gameHTML();
     else html = connectingHTML();
     root.innerHTML = html;
+    for (const sel in scrolls) { const el = root.querySelector(sel); if (el) el.scrollTop = scrolls[sel]; }
     attachPersistent();
 
     for (const id in values) { const el = document.getElementById(id); if (el && el.dataset.keep !== 'no') el.value = values[id]; }
@@ -706,8 +721,21 @@
     else render();
   }
 
+  // ---------- icons (simple line drawings) ----------
+  const ICON = {
+    link: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/></svg>',
+    sound: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>',
+    muted: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>',
+    exit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/></svg>',
+    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    flag: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4M6 4h11l-2.5 4L17 12H6"/></svg>',
+    dice: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.2"/><circle cx="15" cy="15" r="1.2"/><circle cx="15" cy="9" r="1.2"/><circle cx="9" cy="15" r="1.2"/></svg>',
+  };
+
   function logoHTML(small) {
-    return `<div class="logo ${small ? 'small' : ''}"><span class="lc">🃏</span><span>Head<b>bands</b></span></div>`;
+    return `<div class="wordmark ${small ? 'small' : ''}">
+      <svg class="mark" viewBox="0 0 40 40" aria-hidden="true"><rect x="2" y="24" width="36" height="7" rx="3.5" class="band"/><g transform="rotate(-7 20 16)"><rect x="10" y="3" width="20" height="26" rx="2.5" class="card"/><path d="M14.5 14.5c2-2.4 4.2-2.4 5.6 0s3.6 2.4 5.4 0" class="ink"/></g></svg>
+      <span>Headbands</span></div>`;
   }
 
   function homeHTML() {
@@ -715,39 +743,39 @@
     return `
     <main class="home">
       ${logoHTML()}
-      <p class="tag">Everyone can see your card — except you.<br>Ask yes/no questions to figure out who or what you are!</p>
-      <div class="panel">
+      <p class="lede">The party game where everyone can read your forehead but you. Draw a word on a friend's face, then take turns asking yes-or-no questions to work out your own.</p>
+      <div class="sheet">
         <label class="lbl" for="name">Your name</label>
-        <input id="name" class="inp" maxlength="16" autocomplete="nickname" placeholder="e.g. Sam" value="${esc(app.name)}">
+        <input id="name" class="inp" maxlength="16" autocomplete="nickname" placeholder="What should we call you?" value="${esc(app.name)}">
         ${joining ? `
-          <button class="btn big primary" data-act="join">Join game <span class="code-chip">${esc(app.joinCode)}</span></button>
-          <button class="btn link" data-act="notjoin">Use a different code or create a game</button>
+          <button class="btn primary wide" data-act="join">Join room ${esc(app.joinCode)}</button>
+          <button class="btn quiet" data-act="notjoin">Use a different code</button>
         ` : `
-          <button class="btn big primary" data-act="create">✨ Create a game</button>
-          <div class="or"><span>or join a friend</span></div>
+          <button class="btn primary wide" data-act="create">Create a room</button>
+          <div class="divider"><span>or join one</span></div>
           <div class="row">
-            <input id="code" class="inp code" maxlength="6" autocapitalize="characters" autocomplete="off" placeholder="CODE" value="${esc(app.joinCode)}">
-            <button class="btn primary" data-act="join">Join</button>
+            <input id="code" class="inp code" maxlength="6" autocapitalize="characters" autocomplete="off" placeholder="Room code" value="${esc(app.joinCode)}" aria-label="Room code">
+            <button class="btn" data-act="join">Join</button>
           </div>
         `}
         ${app.error ? `<p class="err">${esc(app.error)}</p>` : ''}
       </div>
-      <details class="how">
-        <summary>How to play</summary>
+      <section class="rules">
+        <h2>How to play</h2>
         <ol>
-          <li>One person creates a game and shares the link or code. Hop on a voice call (Discord, FaceTime…).</li>
-          <li>The host picks a theme. Then each player secretly draws a word on another player's blank face — with your mouse or finger.</li>
-          <li>Everyone sits around a 3D table. You see everyone's face — except your own.</li>
-          <li>On your turn, ask yes/no questions out loud (“Am I an animal?”). Everyone answers.</li>
-          <li>When someone guesses their word, anyone taps that player and presses <b>They got it</b>. First to guess wins!</li>
+          <li>Create a room and send the link to your friends. Get everyone on a voice call.</li>
+          <li>Each player is secretly given someone else and draws a word on their blank face.</li>
+          <li>Everyone sits around the table. You can see every face except your own.</li>
+          <li>On your turn, ask yes-or-no questions out loud to narrow down your word.</li>
+          <li>When someone guesses right, tap them and confirm. First to guess wins.</li>
         </ol>
-      </details>
+      </section>
     </main>`;
   }
 
   function connectingHTML() {
-    return `<main class="center"><div class="spinner"></div><p class="status">${esc(app.status || 'Connecting…')}</p>
-      <button class="btn link" data-act="leave">Cancel</button></main>`;
+    return `<main class="center"><div class="spinner" role="progressbar" aria-label="Loading"></div><p class="status">${esc(app.status || 'Connecting…')}</p>
+      <button class="btn quiet" data-act="leave">Cancel</button></main>`;
   }
 
   function endedHTML() {
@@ -759,9 +787,10 @@
   function isMe(id) { return id === app.me; }
   function amHost() { const p = P(app.me); return !!(p && p.isHost); }
   function result(id) { return app.view.results.find((r) => r.id === id); }
+  function hostPlayer() { return app.view.players.find((p) => p.isHost); }
 
   function avatar(p, size = '') {
-    return `<span class="av ${size}" style="--c:${p.color}">${esc((p.name || '?').slice(0, 1).toUpperCase())}</span>`;
+    return `<span class="av ${size}" style="--c:${p.color}" aria-hidden="true">${esc((p.name || '?').slice(0, 1).toUpperCase())}</span>`;
   }
 
   function topBar() {
@@ -770,9 +799,9 @@
     <header class="top">
       ${logoHTML(true)}
       <div class="top-r">
-        <button class="chip" data-act="share" title="Invite friends">Code <b>${esc(v.code)}</b> 🔗</button>
-        <button class="icon" data-act="mute" title="${app.muted ? 'Sound off' : 'Sound on'}">${app.muted ? '🔇' : '🔊'}</button>
-        <button class="icon" data-act="leave" title="Leave">🚪</button>
+        <button class="roomcode" data-act="share" title="Copy invite link"><span>Room</span><b>${esc(v.code)}</b>${ICON.link}</button>
+        <button class="icon" data-act="mute" aria-label="${app.muted ? 'Turn sound on' : 'Turn sound off'}" title="${app.muted ? 'Sound off' : 'Sound on'}">${app.muted ? ICON.muted : ICON.sound}</button>
+        <button class="icon" data-act="leave" aria-label="Leave room" title="Leave room">${ICON.exit}</button>
       </div>
     </header>
     <div id="connbar" class="connbar ${app.status ? 'show' : ''}">${esc(app.status)}</div>`;
@@ -780,17 +809,24 @@
 
   function gameHTML() {
     const v = app.view;
-    let body = '';
-    if (v.phase === 'lobby') body = lobbyHTML();
-    else if (v.phase === 'picking') body = pickingHTML();
-    else if (v.phase === 'playing') body = playingHTML();
-    else if (v.phase === 'over') body = overHTML();
-    return `${topBar()}<main class="game">${body}</main>`;
+    let stage = '', side = '';
+    if (v.phase === 'lobby') [stage, side] = lobbyHTML();
+    else if (v.phase === 'picking') [stage, side] = pickingHTML();
+    else if (v.phase === 'playing') [stage, side] = playingHTML();
+    else if (v.phase === 'over') [stage, side] = overHTML();
+    return `${topBar()}<main class="game phase-${v.phase}"><div class="stage">${stage}</div><aside class="side">${side}</aside></main>`;
   }
 
-  function themeLabel(v) {
-    const t = window.THEMES[v.settings.theme];
-    return v.settings.theme === 'custom' ? `✏️ ${esc(v.themeName)}` : `${t ? t.emoji : '🎲'} ${esc(v.themeName)}`;
+  function themeLabel(v) { return esc(v.themeName); }
+  const TIMER_SHORT = { 0: 'Off', 30: '30s', 60: '1m', 90: '1m 30s', 120: '2m' };
+  function timerControl(v) {
+    return `<div class="seg" role="radiogroup" aria-label="Turn timer">${TIMER_CHOICES.map(([s]) =>
+      `<button role="radio" aria-checked="${v.settings.turnSeconds === s}" class="${v.settings.turnSeconds === s ? 'on' : ''}" data-act="timer" data-s="${s}">${TIMER_SHORT[s]}</button>`).join('')}</div>`;
+  }
+  function timerText(v) { return v.settings.turnSeconds ? `${TIMER_SHORT[v.settings.turnSeconds]} per turn` : 'No time limit'; }
+
+  function stage3D(extraClass = '') {
+    return use3D ? `<div id="scene-slot" class="scene-slot ${extraClass}"></div>` : '';
   }
 
   // ----- lobby -----
@@ -798,56 +834,51 @@
     const v = app.view;
     const hostMe = amHost();
     const online = v.players.filter((p) => p.online).length;
-    const timerLabel = (TIMER_CHOICES.find(([s]) => s === v.settings.turnSeconds) || [0, 'No timer'])[1];
-    const themeOpts = Object.entries(window.THEMES).map(([k, t]) => `<option value="${k}" ${v.settings.theme === k ? 'selected' : ''}>${t.emoji} ${esc(t.name)}</option>`).join('')
-      + `<option value="custom" ${v.settings.theme === 'custom' ? 'selected' : ''}>✏️ Make up your own…</option>`;
-    return `
-    ${use3D ? '<div id="scene-slot" class="scene-slot lobby"></div>' : ''}
-    <section class="panel">
-      <h2>Invite your friends</h2>
-      <p class="muted">Send them this link, or tell them the code <b class="code-chip">${esc(v.code)}</b></p>
-      <div class="row">
-        <input id="sharelink" class="inp" readonly value="${esc(shareLink(v.code))}" data-keep="no">
-        <button class="btn" data-act="share">Copy</button>
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Players <span class="muted">(${online})</span></h2>
-      <ul class="plist">
-        ${v.players.map((p) => `
-          <li class="${p.online ? '' : 'off'}">
-            ${avatar(p)} <span class="pn">${esc(p.name)}${isMe(p.id) ? ' <i>(you)</i>' : ''}</span>
-            ${p.isHost ? '<span class="tagx">host</span>' : ''}
-            ${!p.online ? '<span class="tagx grey">away</span>' : ''}
-            ${hostMe && !p.isHost ? `<button class="x" data-act="kick" data-id="${p.id}" title="Remove">✕</button>` : ''}
-          </li>`).join('')}
-      </ul>
-      ${online < 2 ? '<p class="muted small">Waiting for at least one more player…</p>' : ''}
-    </section>
-
-    <section class="panel">
-      <h2>Game settings</h2>
-      ${hostMe ? `
-        <label class="lbl" for="theme">Theme</label>
-        <select id="theme" class="inp" data-act-change="theme">${themeOpts}</select>
-        ${v.settings.theme === 'custom' ? `
-          <input id="customTheme" class="inp" maxlength="40" placeholder="e.g. Things at school" value="${esc(v.settings.customTheme)}" data-act-input="customTheme">
-        ` : ''}
-        <label class="lbl" for="timer">Time per turn</label>
-        <select id="timer" class="inp" data-act-change="timer">
-          ${TIMER_CHOICES.map(([s, l]) => `<option value="${s}" ${v.settings.turnSeconds === s ? 'selected' : ''}>${l}</option>`).join('')}
-        </select>
-        <button class="btn big primary" data-act="start" ${online < 2 ? 'disabled' : ''}>▶ Start game</button>
-      ` : `
-        <p><b>Theme:</b> ${themeLabel(v)}</p>
-        <p><b>Time per turn:</b> ${timerLabel}</p>
-        <p class="muted">Waiting for the host to start…</p>
-      `}
-    </section>`;
+    const themeOpts = Object.entries(window.THEMES).map(([k, t]) => `<option value="${k}" ${v.settings.theme === k ? 'selected' : ''}>${esc(t.name)}</option>`).join('')
+      + `<option value="custom" ${v.settings.theme === 'custom' ? 'selected' : ''}>Your own theme…</option>`;
+    const stage = use3D ? stage3D() : `<div class="stage-empty"><p>${online} ${online === 1 ? 'player' : 'players'} at the table</p></div>`;
+    const side = `
+      <section class="blk">
+        <h2>Invite players</h2>
+        <div class="row">
+          <input id="sharelink" class="inp sm" readonly value="${esc(shareLink(v.code))}" data-keep="no" aria-label="Invite link">
+          <button class="btn" data-act="share">Copy</button>
+        </div>
+        <p class="note">Or tell them the room code <b>${esc(v.code)}</b>.</p>
+      </section>
+      <section class="blk">
+        <h2>Players <span class="count">${online}</span></h2>
+        <ul class="plist">
+          ${v.players.map((p) => `
+            <li class="${p.online ? '' : 'off'}">
+              ${avatar(p)}<span class="pn">${esc(p.name)}${isMe(p.id) ? ' <span class="you">you</span>' : ''}</span>
+              ${p.isHost ? '<span class="tag">Host</span>' : ''}
+              ${!p.online ? '<span class="tag dim">Away</span>' : ''}
+              ${hostMe && !p.isHost ? `<button class="x" data-act="kick" data-id="${p.id}" aria-label="Remove ${esc(p.name)}" title="Remove">×</button>` : ''}
+            </li>`).join('')}
+        </ul>
+      </section>
+      <section class="blk">
+        <h2>Settings</h2>
+        ${hostMe ? `
+          <label class="lbl" for="theme">Theme</label>
+          <select id="theme" class="inp sm" data-act-change="theme">${themeOpts}</select>
+          ${v.settings.theme === 'custom' ? `<input id="customTheme" class="inp sm" maxlength="40" placeholder="For example: things in our school" value="${esc(v.settings.customTheme)}" data-act-input="customTheme" aria-label="Your theme">` : ''}
+          <span class="lbl">Turn timer</span>
+          ${timerControl(v)}
+        ` : `
+          <dl class="facts"><dt>Theme</dt><dd>${themeLabel(v)}</dd><dt>Turn timer</dt><dd>${timerText(v)}</dd></dl>
+        `}
+      </section>
+      <section class="blk last">
+        ${hostMe
+          ? `<button class="btn primary wide" data-act="start" ${online < 2 ? 'disabled' : ''}>Start game</button>${online < 2 ? '<p class="note">You need at least one more player to start.</p>' : ''}`
+          : `<p class="note">Waiting for ${esc((hostPlayer() || {}).name || 'the host')} to start the game.</p>`}
+      </section>`;
+    return [stage, side];
   }
 
-  // ----- picking words (drawing on faces) -----
+  // ----- picking (drawing on faces) -----
   let pad = null;
   let padFor = null;          // whose face the pad is currently for (my target, or someone the host covers for)
   let hostCoverFor = null;    // host drawing on behalf of an away player: that player's id
@@ -856,8 +887,8 @@
     return pad;
   }
   function faceImg(drawing, cls = 'faceimg', width = 360) {
-    if (!drawing || drawing === 'hidden') return `<div class="${cls} blankface"><span>?</span></div>`;
-    return `<img class="${cls}" alt="drawing" src="${window.Draw.toDataURL(drawing, width)}">`;
+    if (!drawing || drawing === 'hidden') return `<div class="${cls} blankface" aria-label="Hidden"><span>?</span></div>`;
+    return `<img class="${cls}" alt="Drawing" src="${window.Draw.toDataURL(drawing, width)}">`;
   }
 
   function pickingHTML() {
@@ -869,12 +900,11 @@
     const theme = window.THEMES[v.settings.theme];
     const editing = !myPick || pickEditing;
 
-    // whose face are we drawing on right now?
     let drawingFor = null, coverNote = '';
     if (myTarget && editing) drawingFor = myTarget;
     else if (hostMe && hostCoverFor && v.pickFor[hostCoverFor] && !v.wordsReady.includes(v.pickFor[hostCoverFor])) {
       drawingFor = v.pickFor[hostCoverFor];
-      coverNote = `<p class="muted small">(${esc(P(hostCoverFor).name)} is away, so you're drawing for them)</p>`;
+      coverNote = `<p class="note">${esc(P(hostCoverFor).name)} is away, so you're drawing in their place.</p>`;
     } else hostCoverFor = null;
     if (padFor !== drawingFor) {
       padFor = drawingFor;
@@ -882,48 +912,49 @@
       if (drawingFor && drawingFor === myTarget && myPick && myPick !== 'hidden') p.set(myPick); else p.reset();
     }
 
-    let mine = '';
+    let stage = '';
     if (!myTarget && !drawingFor) {
-      mine = `<section class="panel"><h2>Round in progress</h2><p class="muted">You joined mid-game, so you'll play next round. Hang tight!</p></section>`;
+      stage = `<div class="stage-empty"><h2>A round is underway</h2><p>You joined partway through, so you'll get a seat next round.</p></div>`;
     } else if (drawingFor) {
       const tp = P(drawingFor);
-      mine = `
-      <section class="panel pick">
-        <p class="muted">Theme: <b>${themeLabel(v)}</b></p>
-        <h2>Draw a word on ${avatar(tp, 'sm')} <span style="color:${tp.color}">${esc(tp.name)}</span>'s face</h2>
-        ${coverNote}
-        <p class="muted small">Write it big and clear! Everyone will see it on their head — except them.</p>
+      stage = `
+      <div class="drawdesk">
+        <div class="dd-head">
+          <h2>Draw a word on <span class="who" style="--c:${tp.color}">${esc(tp.name)}</span>'s face</h2>
+          <p>Theme: ${themeLabel(v)}. Write it large; everyone will see it except ${esc(tp.name)}.</p>
+          ${coverNote}
+        </div>
         <div id="pad-slot"></div>
-        ${theme && theme.words.length ? `<div class="ideas"><span class="muted small">Need an idea?</span> ${pickIdeas.map((w) => `<span class="idea">${esc(w)}</span>`).join('')}
-          <button class="idea dice" data-act="ideas">🎲</button></div>` : ''}
-        <button class="btn big primary" data-act="lock">🔒 Put it on their face</button>
-      </section>`;
+        ${theme && theme.words.length ? `<div class="ideas"><span>Ideas:</span> ${pickIdeas.map((w) => `<span class="idea">${esc(w)}</span>`).join('')}
+          <button class="icon sm" data-act="ideas" aria-label="Show other ideas" title="Other ideas">${ICON.dice}</button></div>` : ''}
+        <button class="btn primary wide" data-act="lock">Put it on ${esc(tp.name)}'s face</button>
+      </div>`;
     } else {
       const tp = P(myTarget);
-      mine = `
-      <section class="panel pick done">
-        <h2>✅ You drew this on ${esc(tp.name)}'s face</h2>
+      stage = `
+      <div class="drawdesk done">
+        <div class="dd-head"><h2>Your drawing for ${esc(tp.name)}</h2><p>Waiting for everyone else to finish.</p></div>
         ${faceImg(myPick, 'faceimg big')}
-        <button class="btn link" data-act="change">Change my drawing</button>
-      </section>`;
+        <button class="btn quiet" data-act="change">Change drawing</button>
+      </div>`;
     }
 
-    const waiting = pickers.map((pid) => {
-      const p = P(pid); const t = P(v.pickFor[pid]);
-      const done = v.wordsReady.includes(v.pickFor[pid]);
-      return `<li class="${p.online ? '' : 'off'}">${avatar(p)} <span class="pn">${esc(p.name)}</span>
-        <span class="muted small">→ ${esc(t ? t.name : '?')}</span>
-        ${done ? '<span class="ok">✓ ready</span>' : '<span class="muted small">drawing…</span>'}
-        ${hostMe && !done && !isMe(pid) && !p.online && (!myTarget || (myPick && !pickEditing)) ? `<button class="btn tiny" data-act="pickfor" data-id="${pid}">Draw for them</button>` : ''}
-      </li>`;
-    }).join('');
-
-    return `${mine}
-    <section class="panel">
-      <h2>Who's ready</h2>
-      <ul class="plist">${waiting}</ul>
-      ${hostMe ? '<button class="btn link danger" data-act="end">Cancel round</button>' : ''}
-    </section>`;
+    const ready = pickers.filter((pid) => v.wordsReady.includes(v.pickFor[pid])).length;
+    const side = `
+      <section class="blk">
+        <h2>Drawing <span class="count">${ready} of ${pickers.length}</span></h2>
+        <ul class="plist">${pickers.map((pid) => {
+          const p = P(pid); const t = P(v.pickFor[pid]);
+          const done = v.wordsReady.includes(v.pickFor[pid]);
+          return `<li class="${p.online ? '' : 'off'}">${avatar(p)}
+            <span class="pn">${esc(p.name)}<span class="sub">for ${esc(t ? t.name : '?')}</span></span>
+            ${done ? `<span class="state ok">${ICON.check}Done</span>` : '<span class="state">Drawing</span>'}
+            ${hostMe && !done && !isMe(pid) && !p.online && (!myTarget || (myPick && !pickEditing)) ? `<button class="btn xs" data-act="pickfor" data-id="${pid}">Draw for them</button>` : ''}
+          </li>`;
+        }).join('')}</ul>
+      </section>
+      ${hostMe ? '<section class="blk last"><button class="btn quiet danger" data-act="end">Cancel round</button></section>' : ''}`;
+    return [stage, side];
   }
   let pickIdeas = [];
   let pickEditing = false;
@@ -957,6 +988,18 @@
   }
   if (use3D) window.Table3D.onPick((id) => openPlayer(id));
 
+  function statusText(id) {
+    const v = app.view; const r = result(id);
+    if (r) {
+      if (r.how === 'got') { const place = v.results.filter((x) => x.how === 'got').indexOf(r) + 1; return `Guessed it · ${ordinal(place)}`.replace(' · ', ', '); }
+      if (r.how === 'gaveup') return 'Gave up';
+      return 'Didn\'t finish';
+    }
+    const n = v.turnsTaken[id] || 0;
+    return v.phase === 'playing' ? (n ? `${n} ${n === 1 ? 'turn' : 'turns'} taken` : 'No turns yet') : '';
+  }
+  function ordinal(n) { return n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th'); }
+
   function openPlayer(id) {
     const v = app.view; if (!v) return;
     const p = P(id); if (!p) return;
@@ -964,17 +1007,16 @@
     const me = isMe(id);
     const canGot = v.phase === 'playing' && v.order.includes(id) && !r && !me;
     const w = v.words[id];
-    const status = r ? (r.how === 'got' ? '✅ Guessed it!' : r.how === 'gaveup' ? '🏳️ Gave up' : '') : v.phase === 'playing' ? `Turns so far: ${v.turnsTaken[id] || 0}` : '';
     const pickerId = Object.keys(v.pickFor).find((k) => v.pickFor[k] === id);
     const picker = pickerId && P(pickerId);
     const m = $('#modal');
-    m.innerHTML = `<div class="mbox player-pop">
-      <div class="pp-head">${avatar(p, 'lg')}<div><b class="pp-name">${esc(p.name)}${me ? ' (you)' : ''}</b><div class="muted small">${status}${p.online ? '' : ' · away'}</div></div></div>
-      ${me && w === 'hidden' ? '<div class="faceimg big blankface"><span>?</span></div><p class="muted">That\'s you! Your face is hidden from you — ask questions to figure it out.</p>'
-        : w ? `${faceImg(w, 'faceimg big', 520)}${picker ? `<p class="muted small">drawn by ${esc(picker.name)}</p>` : ''}` : ''}
+    m.innerHTML = `<div class="mbox player-pop" role="dialog" aria-modal="true" aria-label="${esc(p.name)}">
+      <div class="pp-head">${avatar(p, 'lg')}<div><b class="pp-name">${esc(p.name)}${me ? ' <span class="you">you</span>' : ''}</b><div class="note">${statusText(id)}${p.online ? '' : (statusText(id) ? ', away' : 'Away')}</div></div></div>
+      ${me && w === 'hidden' ? '<div class="faceimg big blankface"><span>?</span></div><p class="note">This is you. Your face stays hidden until you guess it or give up.</p>'
+        : w ? `${faceImg(w, 'faceimg big', 520)}${picker ? `<p class="note">Drawn by ${esc(picker.name)}</p>` : ''}` : ''}
       <div class="row end">
         <button class="btn" data-m="no">Close</button>
-        ${canGot ? '<button class="btn good" data-m="yes">✓ They got it!</button>' : ''}
+        ${canGot ? `<button class="btn primary" data-m="yes">${esc(p.name)} guessed it</button>` : ''}
       </div></div>`;
     m.classList.remove('hidden');
     const close = () => { m.classList.add('hidden'); m.innerHTML = ''; if (use3D) window.Table3D.focus(null); };
@@ -983,6 +1025,22 @@
       if (e.target === m || (b && b.dataset.m === 'no')) close();
       else if (b && b.dataset.m === 'yes') { close(); send({ a: 'gotit', target: id }); }
     };
+    const first = m.querySelector('[data-m="yes"]') || m.querySelector('[data-m="no"]'); if (first) first.focus();
+  }
+
+  function playerRows(ids, clickable = true) {
+    const v = app.view;
+    return `<ul class="plist rows">${ids.map((id) => {
+      const p = P(id); if (!p) return '';
+      const r = result(id);
+      const turn = v.phase === 'playing' && v.turnId === id;
+      return `<li class="${turn ? 'turnnow' : ''} ${p.online ? '' : 'off'}">
+        <button class="prow" ${clickable ? `data-act="player" data-id="${id}"` : 'disabled'}>
+          ${avatar(p)}
+          <span class="pn">${esc(p.name)}${isMe(id) ? ' <span class="you">you</span>' : ''}<span class="sub">${statusText(id)}${p.online ? '' : ', away'}</span></span>
+          ${r && r.how === 'got' ? `<span class="state ok">${ICON.check}</span>` : r && r.how === 'gaveup' ? `<span class="state">${ICON.flag}</span>` : turn ? '<span class="state turn">Asking</span>' : ''}
+        </button></li>`;
+    }).join('')}</ul>`;
   }
 
   // ----- playing -----
@@ -993,48 +1051,37 @@
     const amPlaying = v.order.includes(app.me);
     const myRes = result(app.me);
     const hostMe = amHost();
-
-    const banner = turnP ? `
-      <section class="turn ${myTurn ? 'mine' : ''}" style="--c:${turnP.color}">
-        <div class="turn-l">
-          ${avatar(turnP, 'lg')}
-          <div>
-            <div class="turn-who">${myTurn ? 'Your turn!' : `${esc(turnP.name)}'s turn`}</div>
-            <div class="turn-hint">${myTurn ? 'Ask yes/no questions out loud' : 'Answer their questions with yes or no'}${turnP.online ? '' : ' · <span class="warn">away</span>'}</div>
-          </div>
-        </div>
-        <div class="timer ${v.settings.turnSeconds ? '' : 'hidden'}" id="timer">--</div>
-      </section>` : '';
-
-    const chips = v.order.map((id) => {
-      const p = P(id); if (!p) return '';
-      const r = result(id);
-      const got = v.results.filter((x) => x.how === 'got');
-      const place = r && r.how === 'got' ? got.indexOf(r) + 1 : 0;
-      const badge = r ? (r.how === 'got' ? (place === 1 ? '🥇' : place === 2 ? '🥈' : place === 3 ? '🥉' : '✅') : '🏳️') : '';
-      return `<button class="pchip ${v.turnId === id ? 'turnnow' : ''} ${p.online ? '' : 'off'}" data-act="player" data-id="${id}" style="--c:${p.color}">
-        ${avatar(p, 'sm')}<span>${esc(p.name)}${isMe(id) ? ' (you)' : ''}</span>${badge ? `<span>${badge}</span>` : ''}</button>`;
-    }).join('');
     const watchers = v.players.filter((p) => !v.order.includes(p.id));
 
-    const board = use3D
-      ? `<div id="scene-slot" class="scene-slot"></div><div class="pchips">${chips}</div>
-         <p class="muted small center-t">Tap a player to see their face up close${amPlaying ? '' : ''} or mark that they got it.</p>`
+    const stage = use3D ? `${stage3D()}<p class="stage-hint">Drag to look around. Tap someone to zoom in.</p>`
       : `<section class="board">${v.order.map((id) => tileHTML(id)).join('')}</section>`;
 
-    return `
-    <div class="theme-line">Theme: <b>${themeLabel(v)}</b></div>
-    ${banner}
-    ${board}
-    ${!amPlaying ? '<p class="muted center-t">You\'re watching this round — you\'ll play next round.</p>' : ''}
-    ${watchers.length ? `<p class="muted small center-t">Watching: ${watchers.map((p) => esc(p.name)).join(', ')}</p>` : ''}
-    ${amPlaying && myRes ? `<div class="mine-face"><span>Your face said:</span>${faceImg(v.words[app.me], 'faceimg small', 240)}</div>` : ''}
-    <section class="actions">
-      ${myTurn ? '<button class="btn big primary" data-act="next">✋ Done — pass the turn</button>' : ''}
-      ${!myTurn && hostMe ? '<button class="btn" data-act="next">⏭ Skip to next turn</button>' : ''}
-      ${amPlaying && !myRes ? '<button class="btn link" data-act="giveup">I give up — show my face</button>' : ''}
-      ${hostMe ? '<button class="btn link danger" data-act="end">End game</button>' : ''}
-    </section>`;
+    const side = `
+      ${turnP ? `<section class="blk turnblk ${myTurn ? 'mine' : ''}" style="--c:${turnP.color}">
+        <div class="turn-top">
+          <div><div class="turn-who">${myTurn ? 'Your turn' : `${esc(turnP.name)}'s turn`}</div>
+          <div class="note">${myTurn ? 'Ask a yes-or-no question out loud.' : `Answer ${esc(turnP.name)}'s questions.`}${turnP.online ? '' : ` ${esc(turnP.name)} is away.`}</div></div>
+          <div class="timer ${v.settings.turnSeconds ? '' : 'hidden'}" id="timer" aria-label="Time left">--</div>
+        </div>
+        ${myTurn ? '<button class="btn primary wide" data-act="next">End my turn</button>' : ''}
+      </section>` : ''}
+      <section class="blk">
+        <h2>At the table</h2>
+        ${playerRows(v.order)}
+        ${watchers.length ? `<p class="note">Watching: ${watchers.map((p) => esc(p.name)).join(', ')}${amPlaying ? '' : '. You\'ll get a seat next round.'}</p>` : ''}
+      </section>
+      ${amPlaying && myRes ? `<section class="blk"><h2>Your face</h2>${faceImg(v.words[app.me], 'faceimg', 320)}</section>` : ''}
+      ${hostMe ? `<section class="blk">
+        <h2>Host controls</h2>
+        <span class="lbl">Turn timer</span>
+        ${timerControl(v)}
+        <div class="row gap">
+          ${!myTurn ? '<button class="btn sm" data-act="next">Skip turn</button>' : ''}
+          <button class="btn sm quiet danger" data-act="end">End game</button>
+        </div>
+      </section>` : ''}
+      ${amPlaying && !myRes ? '<section class="blk last"><button class="btn quiet" data-act="giveup">Give up and reveal my face</button></section>' : ''}`;
+    return [stage, side];
   }
 
   // flat fallback for devices without 3D
@@ -1042,18 +1089,12 @@
     const v = app.view;
     const p = P(id); if (!p) return '';
     const me = isMe(id);
-    const res = result(id);
-    const word = v.words[id];
-    const isTurn = v.turnId === id;
-    const place = res && res.how === 'got' ? v.results.filter((r) => r.how === 'got').indexOf(res) + 1 : 0;
     return `
-    <div class="tile ${isTurn ? 'turnnow' : ''} ${p.online ? '' : 'off'} ${me ? 'me' : ''}" style="--c:${p.color}" data-act="player" data-id="${id}">
-      ${faceImg(word, 'faceimg')}
-      ${place ? `<div class="medal">${place === 1 ? '🥇' : place === 2 ? '🥈' : place === 3 ? '🥉' : '✓'}</div>` : ''}
-      ${res && res.how === 'gaveup' ? '<div class="medal">🏳️</div>' : ''}
-      <div class="pname">${esc(p.name)}${me ? ' <i>(you)</i>' : ''}</div>
-      <div class="pmeta">${p.online ? '' : '<span class="warn">away · </span>'}${res ? (res.how === 'got' ? 'Guessed it!' : 'Gave up') : `Turns: ${v.turnsTaken[id] || 0}`}</div>
-    </div>`;
+    <button class="tile ${v.turnId === id ? 'turnnow' : ''} ${p.online ? '' : 'off'}" style="--c:${p.color}" data-act="player" data-id="${id}">
+      ${faceImg(v.words[id], 'faceimg')}
+      <span class="pname">${esc(p.name)}${me ? ' <span class="you">you</span>' : ''}</span>
+      <span class="note">${statusText(id)}</span>
+    </button>`;
   }
 
   // ----- results -----
@@ -1065,23 +1106,26 @@
       const p = P(r.id) || { name: '?', color: '#888' };
       const pickerId = Object.keys(v.pickFor).find((k) => v.pickFor[k] === r.id);
       const picker = pickerId && P(pickerId);
-      const medal = r.how === 'got' ? (i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`) : r.how === 'gaveup' ? '🏳️' : '⏹';
       const turns = Math.max(1, r.turns);
+      const rank = r.how === 'got' ? ordinal(i + 1) : '–';
       return `<li>
-        <span class="rk">${medal}</span>
-        <div class="rinfo"><div><b>${esc(p.name)}</b>${isMe(r.id) ? ' <i>(you)</i>' : ''}</div>
-          <div class="muted small">${r.how === 'got' ? `${turns} turn${turns === 1 ? '' : 's'}` : r.how === 'gaveup' ? 'gave up' : 'didn\'t finish'}${picker ? ` · drawn by ${esc(picker.name)}` : ''}</div></div>
-        ${faceImg(v.words[r.id], 'faceimg small', 240)}
+        <span class="rk">${rank}</span>
+        <div class="rinfo"><b>${esc(p.name)}</b>${isMe(r.id) ? ' <span class="you">you</span>' : ''}
+          <span class="sub">${r.how === 'got' ? `${turns} ${turns === 1 ? 'turn' : 'turns'}` : r.how === 'gaveup' ? 'Gave up' : 'Didn\'t finish'}${picker ? `, drawn by ${esc(picker.name)}` : ''}</span></div>
+        ${faceImg(v.words[r.id], 'faceimg thumb', 240)}
       </li>`;
     }).join('');
     const winner = got[0] && P(got[0].id);
-    return `
-    <section class="panel over">
-      <div class="confetti">🎉</div>
-      <h2>${winner ? `${esc(winner.name)} wins!` : 'Game over'}</h2>
-      <ul class="results">${rows}</ul>
-      ${amHost() ? '<button class="btn big primary" data-act="again">🔁 Play again</button>' : '<p class="muted">Waiting for the host to start another round…</p>'}
-    </section>`;
+    const stage = use3D ? stage3D() : '';
+    const side = `
+      <section class="blk">
+        <h2 class="winner">${winner ? `${esc(winner.name)} wins` : 'Game over'}</h2>
+        <ol class="results">${rows}</ol>
+      </section>
+      <section class="blk last">
+        ${amHost() ? '<button class="btn primary wide" data-act="again">Play another round</button>' : `<p class="note">Waiting for ${esc((hostPlayer() || {}).name || 'the host')} to start another round.</p>`}
+      </section>`;
+    return [stage, side];
   }
 
   // ---------- timer display ----------
@@ -1137,10 +1181,10 @@
     if (navigator.share && /Mobi|iPhone|Android/i.test(navigator.userAgent)) {
       try { await navigator.share({ title: 'Play Headbands with me!', text: `Join my Headbands game — code ${app.code}`, url: link }); return; } catch {}
     }
-    try { await navigator.clipboard.writeText(link); toast('Invite link copied!'); }
+    try { await navigator.clipboard.writeText(link); toast('Invite link copied'); }
     catch {
       const el = document.getElementById('sharelink');
-      if (el) { el.select(); try { document.execCommand('copy'); toast('Invite link copied!'); } catch { toast('Copy the link above to invite friends'); } }
+      if (el) { el.select(); try { document.execCommand('copy'); toast('Invite link copied'); } catch { toast('Copy the link above to invite friends'); } }
       else toast(`Code: ${app.code}`);
     }
   }
@@ -1193,7 +1237,7 @@
       case 'ideas': refreshIdeas(); render(); break;
       case 'lock': {
         const p = getPad();
-        if (p.isEmpty()) { toast('Draw something first!'); return; }
+        if (p.isEmpty()) { toast('Draw something first'); return; }
         const drawing = p.get();
         if (hostCoverFor && padFor !== v.pickFor[app.me]) { send({ a: 'word', for: hostCoverFor, drawing }); hostCoverFor = null; }
         else { pickEditing = false; send({ a: 'word', drawing }); }
@@ -1202,7 +1246,8 @@
       case 'change': pickEditing = true; render(); break;
       case 'pickfor': hostCoverFor = b.dataset.id; render(); break;
       case 'player': openPlayer(b.dataset.id); break;
-      case 'giveup': confirmBox('Give up and see what\'s on your face? You\'ll finish at the bottom.', 'Show my face', () => send({ a: 'giveup' }), true); break;
+      case 'timer': send({ a: 'settings', settings: { turnSeconds: Number(b.dataset.s) } }); break;
+      case 'giveup': confirmBox('Give up and reveal your face? You\'ll be ranked after everyone who guessed.', 'Reveal my face', () => send({ a: 'giveup' }), true); break;
       case 'next': send({ a: 'next', turn: v.turnId }); break;
       case 'end': confirmBox(v.phase === 'picking' ? 'Cancel this round and go back to the lobby?' : 'End the game now and show results?', v.phase === 'picking' ? 'Cancel round' : 'End game', () => send({ a: 'end' }), true); break;
       case 'again': send({ a: 'again' }); break;
@@ -1212,7 +1257,6 @@
   root.addEventListener('change', (e) => {
     const el = e.target;
     if (el.dataset.actChange === 'theme') send({ a: 'settings', settings: { theme: el.value } });
-    if (el.dataset.actChange === 'timer') send({ a: 'settings', settings: { turnSeconds: Number(el.value) } });
   });
   let customTimer = null;
   root.addEventListener('input', (e) => {
