@@ -48,7 +48,10 @@
 
   function newCode() { let s = ''; for (let i = 0; i < 4; i++) s += CODE_CHARS[rand(CODE_CHARS.length)]; return s; }
   function cleanCode(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6); }
-  function cleanName(s) { return String(s || '').replace(/\s+/g, ' ').trim().slice(0, 16); }
+  // Easter eggs: some names get "improved" automatically
+  const NAME_EGGS = { cait: 'CAITSUCKS' };
+  function eggName(n) { return NAME_EGGS[n.toLowerCase()] || n; }
+  function cleanName(s) { return eggName(String(s || '').replace(/\s+/g, ' ').trim().slice(0, 16)); }
   function cleanWord(s) { return String(s || '').replace(/\s+/g, ' ').trim().slice(0, 40); }
   function shareLink(code) {
     const u = new URL(location.href);
@@ -1532,6 +1535,7 @@
       customTimer = setTimeout(() => send({ a: 'settings', settings: { customTheme: el.value } }), 400);
     }
     if (el.id === 'code') { const c = cleanCode(el.value); if (c !== el.value) el.value = c; }
+    if (el.id === 'name') { const e = eggName(el.value.trim()); if (e !== el.value.trim()) el.value = e; }
     if (el.id === 'notes') store.set(notesKey(), el.value);
   });
   root.addEventListener('keydown', (e) => {
