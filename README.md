@@ -21,6 +21,8 @@ The host can change the turn timer, or switch it off, in the lobby or during a g
 - Tap Yes, No or Maybe to answer the asking player, or send a quick reaction; it pops up above your head.
 - Keep private notes during a round (only you can see them).
 - The winner of each game can paint a message on the wall; the last three stay up for the next rounds.
+- Guess your word and your ropes drop to the floor. The lamp doubles as the turn clock: it flickers harder in the last 10 seconds and cuts out when time's up. Each round starts in the dark with a door slam.
+- Sound: a low room hum, the lamp's buzz, ropes creaking as heads turn (mute with the speaker button).
 
 ## Good to know
 - No accounts or downloads. It works in any modern browser on phones and computers.

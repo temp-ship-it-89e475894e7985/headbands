@@ -110,8 +110,87 @@
     timeUp: () => beep([330, 262], 0.2, 'sawtooth', 0.02, 0.08),
     join: () => beep([660, 880], 0.07),
   };
-  // iPhones only allow sound after a tap
-  document.addEventListener('pointerdown', () => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch {} }, { once: true });
+  // ---------- the room's sounds (all made in the browser, no files) ----------
+  function ctx() {
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); return actx; } catch { return null; }
+  }
+  let noiseBuf = null;
+  function noise(a) {
+    if (noiseBuf) return noiseBuf;
+    noiseBuf = a.createBuffer(1, a.sampleRate * 2, a.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return noiseBuf;
+  }
+  const hum = { nodes: null };
+  function startHum() {
+    if (hum.nodes || app.muted) return;
+    const a = ctx(); if (!a || a.state !== 'running') return;
+    const master = a.createGain(); master.gain.value = 0; master.connect(a.destination);
+    master.gain.linearRampToValueAtTime(0.045, a.currentTime + 3);
+    const srcs = [];
+    for (const [f, g, type] of [[55, 0.5, 'sine'], [55.7, 0.4, 'sine'], [110, 0.12, 'triangle']]) {
+      const o = a.createOscillator(); o.type = type; o.frequency.value = f;
+      const gg = a.createGain(); gg.gain.value = g; o.connect(gg).connect(master); o.start(); srcs.push(o);
+    }
+    const n = a.createBufferSource(); n.buffer = noise(a); n.loop = true;
+    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260;
+    const ng = a.createGain(); ng.gain.value = 0.35; n.connect(lp).connect(ng).connect(master); n.start(); srcs.push(n);
+    hum.nodes = { master, srcs };
+  }
+  function stopHum() {
+    if (!hum.nodes) return;
+    const { master, srcs } = hum.nodes; hum.nodes = null;
+    try { const t = actx.currentTime; master.gain.cancelScheduledValues(t); master.gain.setValueAtTime(master.gain.value, t); master.gain.linearRampToValueAtTime(0, t + 0.6); setTimeout(() => srcs.forEach((s) => { try { s.stop(); } catch {} }), 800); } catch {}
+  }
+  function syncHum() { if (app.screen === 'game' && !app.muted) startHum(); else stopHum(); }
+  const fx = {
+    // the lamp's electrical buzz when it flickers
+    buzz(level = 0.5) {
+      const a = ctx(); if (!a || app.muted || app.screen !== 'game') return;
+      const t = a.currentTime, g = a.createGain(); g.gain.value = 0;
+      const o = a.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 100;
+      const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1400; bp.Q.value = 2;
+      o.connect(bp).connect(g).connect(a.destination);
+      for (let i = 0; i < 10; i++) g.gain.setValueAtTime(Math.random() < 0.55 ? 0.05 * level : 0, t + i * 0.045);
+      g.gain.setValueAtTime(0, t + 0.5);
+      o.start(t); o.stop(t + 0.55);
+    },
+    // a rope creaking as someone strains their head round
+    creak() {
+      const a = ctx(); if (!a || app.muted || app.screen !== 'game') return;
+      const t = a.currentTime;
+      const n = a.createBufferSource(); n.buffer = noise(a);
+      const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 12;
+      bp.frequency.setValueAtTime(380, t); bp.frequency.linearRampToValueAtTime(820, t + 0.35);
+      const g = a.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.09, t + 0.05); g.gain.linearRampToValueAtTime(0, t + 0.38);
+      n.connect(bp).connect(g).connect(a.destination); n.start(t); n.stop(t + 0.4);
+    },
+    // a heavy door slamming shut somewhere outside the room
+    slam() {
+      const a = ctx(); if (!a || app.muted) return;
+      const t = a.currentTime;
+      const out = a.createGain(); out.gain.value = 1; out.connect(a.destination);
+      const echo = a.createDelay(); echo.delayTime.value = 0.17; const fb = a.createGain(); fb.gain.value = 0.32;
+      out.connect(echo); echo.connect(fb).connect(echo); const eg = a.createGain(); eg.gain.value = 0.5; echo.connect(eg).connect(a.destination);
+      const o = a.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(75, t); o.frequency.exponentialRampToValueAtTime(32, t + 0.45);
+      const og = a.createGain(); og.gain.setValueAtTime(0.5, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+      o.connect(og).connect(out); o.start(t); o.stop(t + 0.65);
+      const n = a.createBufferSource(); n.buffer = noise(a);
+      const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+      const ng = a.createGain(); ng.gain.setValueAtTime(0.35, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      n.connect(lp).connect(ng).connect(out); n.start(t); n.stop(t + 0.3);
+    },
+    // the power cutting out when time runs out
+    cut() {
+      const a = ctx(); if (!a || app.muted) return;
+      const t = a.currentTime;
+      const o = a.createOscillator(); o.type = 'square'; o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.3);
+      const g = a.createGain(); g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      o.connect(g).connect(a.destination); o.start(t); o.stop(t + 0.4);
+    },
+  };
+  // browsers only allow sound after a tap or click
+  document.addEventListener('pointerdown', () => { ctx(); setTimeout(syncHum, 50); });
 
   // keep the screen awake while in a game (phones)
   let wakeLock = null;
@@ -697,7 +776,7 @@
       if (!first && v.event.text) {
         toast(v.event.text);
         if (v.event.kind === 'gotit') sounds.gotIt();
-        else if (v.event.kind === 'timeup') sounds.timeUp();
+        else if (v.event.kind === 'timeup') { fx.cut(); if (use3D) window.Table3D.blackout(900); }
         else if (v.event.kind === 'join') sounds.join();
       }
     }
@@ -706,6 +785,8 @@
     }
     lastTurnId = v.phase === 'playing' ? v.turnId : null;
     const phaseChanged = lastPhase !== v.phase;
+    // a new round starts in the dark; a door slams and the lamp sparks on
+    if (phaseChanged && v.phase === 'playing' && lastPhase === 'picking') { fx.slam(); if (use3D) window.Table3D.intro(); }
     lastPhase = v.phase;
     if (phaseChanged) requestAnimationFrame(() => window.scrollTo(0, 0));
     keepAwake(v.phase === 'playing' || v.phase === 'picking');
@@ -737,6 +818,7 @@
     else html = connectingHTML();
     root.innerHTML = html;
     document.body.classList.toggle('light', app.screen === 'home');
+    syncHum();
     for (const sel in scrolls) { const el = root.querySelector(sel); if (el) el.scrollTop = scrolls[sel]; }
     attachPersistent();
 
@@ -1074,6 +1156,8 @@
     };
   }
   if (use3D) {
+    window.Table3D.onFlicker((level) => fx.buzz(level));
+    window.Table3D.onCreak(() => fx.creak());
     window.Table3D.onPick((id) => { if (id) openPlayer(id); else closeModal(); });
     // share where I'm looking (and who I'm leaning in to inspect) with everyone
     window.Table3D.onLook((l) => {
@@ -1293,6 +1377,10 @@
 
   // ---------- timer display ----------
   function updateTimer() {
+    if (use3D) {
+      const v = app.view;
+      window.Table3D.setTimeLeft(v && v.phase === 'playing' && v.settings.turnSeconds && localTurnEnd ? Math.max(0, localTurnEnd - now()) : null);
+    }
     const el = document.getElementById('timer');
     if (!el || !app.view || app.view.phase !== 'playing' || !app.view.settings.turnSeconds) return;
     const ms = localTurnEnd ? Math.max(0, localTurnEnd - now()) : 0;
@@ -1385,7 +1473,7 @@
       }
       case 'notjoin': app.joinCode = ''; setUrlRoom(null); render(); break;
       case 'share': copyLink(); break;
-      case 'mute': app.muted = !app.muted; store.set('hb-muted', app.muted); render(); break;
+      case 'mute': app.muted = !app.muted; store.set('hb-muted', app.muted); render(); syncHum(); break;
       case 'leave': {
         if (app.role === 'host' && app.screen === 'game') {
           confirmBox('Leave and close this game for everyone?', 'Close game', () => { hostClose(); goHome(); }, true);

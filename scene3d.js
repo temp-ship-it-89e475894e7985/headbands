@@ -55,14 +55,37 @@
   const bulb = new T.Mesh(new T.SphereGeometry(0.065, 16, 12), bulbMat); bulb.position.set(0, LAMP_Y, 0); scene.add(bulb);
   const cord = new T.Mesh(new T.CylinderGeometry(0.008, 0.008, 5 - LAMP_Y, 6), new T.MeshBasicMaterial({ color: 0x222222 })); cord.position.set(0, (5 + LAMP_Y) / 2 + 0.1, 0); scene.add(cord);
   // flicker: mostly steady, now and then a short stutter
-  const flick = { next: 4000 + Math.random() * 6000, until: 0, level: 1 };
+  // The lamp also works as the turn clock: in the last 10 seconds it flickers harder,
+  // at zero it cuts out for a moment, and each round starts in the dark.
+  const flick = { next: 4000 + Math.random() * 6000, until: 0, level: 1, timeLeft: null, blackoutUntil: 0, introAt: 0 };
+  let onFlickerCb = null;
   function flicker(t) {
-    if (t > flick.next) { flick.until = t + 250 + Math.random() * 700; flick.next = t + 5000 + Math.random() * 9000; }
-    let target = 0.96 + Math.sin(t / 90) * 0.02 + Math.sin(t / 37) * 0.015;
-    if (t < flick.until) target = Math.random() < 0.45 ? 0.18 + Math.random() * 0.3 : 0.85 + Math.random() * 0.2;
-    flick.level += (target - flick.level) * (t < flick.until ? 0.7 : 0.15);
-    spot.intensity = 30 * flick.level; glow.intensity = 9 * flick.level;
-    bulbMat.color.setRGB(1, 0.94, 0.79).multiplyScalar(0.35 + 0.65 * flick.level);
+    const nowP = performance.now();
+    const pressure = flick.timeLeft != null && flick.timeLeft < 10000 ? 1 - flick.timeLeft / 10000 : 0;
+    if (t > flick.next) {
+      flick.until = t + 250 + Math.random() * 700 + pressure * 500;
+      flick.next = t + (5000 + Math.random() * 9000) * (1 - pressure * 0.92);
+      if (onFlickerCb) onFlickerCb(0.4 + pressure * 0.6);
+    }
+    let target = 0.96 + Math.sin(t / 90) * 0.02 + Math.sin(t / 37) * 0.015 - pressure * 0.25;
+    if (t < flick.until) target = Math.random() < 0.45 + pressure * 0.25 ? 0.15 + Math.random() * 0.3 : 0.85 + Math.random() * 0.2;
+    let level;
+    if (flick.introAt) {
+      // round intro: dark, then the lamp sparks on
+      const k = nowP - flick.introAt;
+      if (k < 1300) level = 0;
+      else if (k < 2100) level = Math.random() < 0.5 ? 0 : 0.5 + Math.random() * 0.6;
+      else { flick.introAt = 0; level = 1; }
+      flick.level = level;
+    } else if (nowP < flick.blackoutUntil) {
+      flick.level = level = 0;
+    } else {
+      flick.level += (target - flick.level) * (t < flick.until ? 0.7 : 0.15);
+      level = flick.level;
+    }
+    spot.intensity = 30 * level; glow.intensity = 9 * level;
+    ambient.intensity = level < 0.05 ? 0.015 : 0.06;
+    bulbMat.color.setRGB(1, 0.94, 0.79).multiplyScalar(0.12 + 0.88 * level);
   }
 
   // the table: plain white, round, small
@@ -477,14 +500,16 @@
     seat.updateMatrixWorld(true);
     const ap = ankles.map((o) => seat.worldToLocal(o.getWorldPosition(new T.Vector3())));
     const ax = Math.abs(ap[0].x - ap[1].x) / 2, mid = ap[0].clone().add(ap[1]).multiplyScalar(0.5);
+    const tapeG = new T.Group(); seat.add(tapeG);
     const tape = new T.Mesh(new T.CylinderGeometry(1, 1, 1, 28, 1, true), tapeMat);
-    tape.scale.set(ax + 0.043, 0.065, 0.047); tape.position.copy(mid); straps.add(tape);
-    const tape2 = new T.Mesh(tape.geometry, tapeMat); tape2.scale.set(ax + 0.046, 0.03, 0.05); tape2.position.copy(mid).add(new T.Vector3(0, 0.035, 0)); tape2.rotation.z = 0.08; straps.add(tape2);
+    tape.scale.set(ax + 0.043, 0.065, 0.047); tape.position.copy(mid); tapeG.add(tape);
+    const tape2 = new T.Mesh(tape.geometry, tapeMat); tape2.scale.set(ax + 0.046, 0.03, 0.05); tape2.position.copy(mid).add(new T.Vector3(0, 0.035, 0)); tape2.rotation.z = 0.08; tapeG.add(tape2);
+    const tapeY = mid.y;
     const ring = new T.Mesh(G.ring, new T.MeshBasicMaterial({ color: 0xf4c542, transparent: true, opacity: 0.9 }));
     ring.rotation.x = Math.PI / 2; ring.position.set(0, 0.02, 0.02); ring.visible = false; seat.add(ring);
 
     const f = {
-      id: p.id, seat, fig, upper, neckG, straps, headG, face, faceMat, chair, ring, arms, name: p.name, color: p.color, badge: '', tagExtra: null,
+      id: p.id, seat, fig, upper, neckG, straps, tapeG, tapeY, freed: false, freeAt: 0, fall: Math.random() * 2 - 1, headG, face, faceMat, chair, ring, arms, name: p.name, color: p.color, badge: '', tagExtra: null,
       gear: null, gearKey: '', tag: null, tagKey: '', faceKey: '',
       look: null,                  // { yaw, pitch, inspect, at } from the network
       cur: { yaw: 0, pitch: -0.1, peer: 0, peerYaw: 0 },
@@ -550,7 +575,7 @@
   const view = { yaw: 0, pitch: -0.12, zoom: 1, tYaw: 0, tPitch: -0.12, tZoom: 1, orbit: 0, tOrbit: 0, lean: 0 };
   let autoH = 1.3;
   let focusId = null;
-  let onPickCb = null, onLookCb = null;
+  let onPickCb = null, onLookCb = null, onCreakCb = null;
   let lastMouseAt = 0;
   const mouseN = { x: 0, y: 0, inside: false };
 
@@ -625,6 +650,11 @@
       refreshTag(f);
       f.ring.visible = !!p.isTurn && !(p.id === me && mode === 'seat');
       f.online = p.online !== false;
+      // guessed it: the ropes and tape drop to the floor
+      const free = p.done === 'got';
+      if (free && !f.freed) { f.freed = true; f.freeAt = performance.now(); }
+      if (!free && f.freed) { f.freed = false; f.straps.position.set(0, 0, 0); f.straps.rotation.set(0, 0, 0); f.tapeG.position.set(0, 0, 0); f.tapeG.scale.set(1, 1, 1); }
+      if (p.id === me && mode === 'seat') f.tapeG.visible = false;
     }
     el.classList.toggle('seat', mode === 'seat');
   }
@@ -810,7 +840,9 @@
       pitch = -0.1 + Math.sin(t / 3100 + f.phase) * 0.08;
     }
     yaw = Math.max(-1.35, Math.min(1.35, wrapA(yaw)));
+    const before = f.cur.yaw;
     f.cur.yaw += (yaw - f.cur.yaw) * k;
+    if (onCreakCb && Math.abs(f.cur.yaw - before) / Math.max(dt, 0.001) > 1.6 && performance.now() - (f.creakAt || 0) > 1500) { f.creakAt = performance.now(); onCreakCb(); }
     f.cur.pitch += (pitch - f.cur.pitch) * k;
     f.cur.peer += (peer - f.cur.peer) * Math.min(1, dt * 3.5);
     f.cur.peerYaw += (peerYaw - f.cur.peerYaw) * Math.min(1, dt * 3.5);
@@ -823,6 +855,15 @@
     if (f.gear) for (const fn of f.gear.userData.anim) fn(t + f.phase * 1000);
     if (f.ring.visible) { const s = 1 + Math.sin(t / 250) * 0.06; f.ring.scale.set(s, s, s); }
     if (L && performance.now() - L.at > 15000) refreshTag(f);
+    if (f.freed) {
+      // fall with gravity, then lie on the floor around the chair
+      const k = Math.min(1, (performance.now() - f.freeAt) / 550);
+      const e = k * k;
+      f.straps.position.y = -0.84 * e; f.straps.rotation.set(0.05 * f.fall * e, 0, 0.08 * f.fall * e);
+      f.tapeG.position.y = (0.02 - f.tapeY) * e; f.tapeG.scale.y = 1 - 0.6 * e;
+      // freed: sit up a little straighter and look up
+      f.upper.rotation.x = -0.04 * k;
+    } else if (f.upper.rotation.x) f.upper.rotation.x = 0;
   }
 
   let debugCam = null;
@@ -951,6 +992,11 @@
     start, stop, resize,
     onPick(cb) { onPickCb = cb; },
     onLook(cb) { onLookCb = cb; },
+    onFlicker(cb) { onFlickerCb = cb; },
+    onCreak(cb) { onCreakCb = cb; },
+    setTimeLeft(ms) { flick.timeLeft = ms; },
+    blackout(ms = 1000) { flick.blackoutUntil = performance.now() + ms; },
+    intro() { if (!calm) { flick.introAt = performance.now(); flick.intros = (flick.intros || 0) + 1; } },
     _cam(id, dist = 1.6, h = 1.2, side = 0) {
       const f = figures.get(id); if (!f) { debugCam = null; return; }
       const p = new T.Vector3(side, h, dist); f.seat.localToWorld(p);
@@ -961,7 +1007,7 @@
     _debug() {
       return {
         figures: [...figures.keys()], me, mode,
-        faces: [...figures.values()].map((f) => ({ id: f.id, drawn: f.faceKey !== 'blank', visible: f.fig.visible, gear: f.gearKey, lean: +f.cur.peer.toFixed(2), yaw: +f.cur.yaw.toFixed(2), tag: f.tagKey })), bubbles: bubbles.length, walls: wallGroup.children.length,
+        faces: [...figures.values()].map((f) => ({ id: f.id, drawn: f.faceKey !== 'blank', visible: f.fig.visible, gear: f.gearKey, lean: +f.cur.peer.toFixed(2), yaw: +f.cur.yaw.toFixed(2), tag: f.tagKey, freed: f.freed, ropeY: +f.straps.position.y.toFixed(2) })), bubbles: bubbles.length, lamp: +flick.level.toFixed(2), intros: flick.intros || 0, walls: wallGroup.children.length,
         view: { yaw: +view.yaw.toFixed(2), focus: focusId },
       };
     },
