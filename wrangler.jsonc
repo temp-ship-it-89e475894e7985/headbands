@@ -1,0 +1,6 @@
+// Lets Cloudflare host this folder as a website (no build step needed).
+{
+  "name": "facevalue",
+  "compatibility_date": "2025-09-01",
+  "assets": { "directory": "." }
+}

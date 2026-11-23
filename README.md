@@ -1,6 +1,6 @@
-# Headbands 🃏
+# Face Value
 
-An online version of the party game Headbands. Everyone sees your card except you, so ask yes/no questions to figure out who or what you are.
+An online party guessing game in the style of Headbands. Everyone sees your card except you, so ask yes/no questions to figure out who or what you are.
 
 **Play:** https://temp-ship-it-89e475894e7985.github.io/headbands/
 

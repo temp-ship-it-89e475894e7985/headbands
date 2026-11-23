@@ -1,4 +1,4 @@
-/* Headbands — online party guessing game.
+/* Face Value — online party guessing game.
  *
  * How it works (no server of our own):
  *  - The person who creates a game becomes the "host". Their browser keeps the
@@ -735,7 +735,7 @@
   function logoHTML(small) {
     return `<div class="wordmark ${small ? 'small' : ''}">
       <svg class="mark" viewBox="0 0 40 40" aria-hidden="true"><rect x="2" y="24" width="36" height="7" rx="3.5" class="band"/><g transform="rotate(-7 20 16)"><rect x="10" y="3" width="20" height="26" rx="2.5" class="card"/><path d="M14.5 14.5c2-2.4 4.2-2.4 5.6 0s3.6 2.4 5.4 0" class="ink"/></g></svg>
-      <span>Headbands</span></div>`;
+      <span>Face Value</span></div>`;
   }
 
   function homeHTML() {
@@ -1179,7 +1179,7 @@
   async function copyLink() {
     const link = shareLink(app.code);
     if (navigator.share && /Mobi|iPhone|Android/i.test(navigator.userAgent)) {
-      try { await navigator.share({ title: 'Play Headbands with me!', text: `Join my Headbands game — code ${app.code}`, url: link }); return; } catch {}
+      try { await navigator.share({ title: 'Play Face Value with me', text: `Join my Face Value room: ${app.code}`, url: link }); return; } catch {}
     }
     try { await navigator.clipboard.writeText(link); toast('Invite link copied'); }
     catch {

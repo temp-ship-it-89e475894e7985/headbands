@@ -1,4 +1,4 @@
-// Themes and word ideas for Headbands.
+// Themes and word ideas for Face Value.
 // To add your own theme, copy one of the blocks below and change the words.
 window.THEMES = {
   animals: {

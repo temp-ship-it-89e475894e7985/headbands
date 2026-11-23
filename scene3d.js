@@ -1,4 +1,4 @@
-/* Headbands — the 3D table.
+/* Face Value — the 3D table.
  *
  * Everyone sits around a round table as a smooth mannequin with a blank face.
  * Your camera sits in your own seat, so you see everyone else's face but not your own.

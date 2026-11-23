@@ -1,4 +1,4 @@
-/* Headbands — drawing on faces.
+/* Face Value — drawing on faces.
  *
  * A drawing is a list of strokes. Each stroke stores its colour, its pen size
  * and its points squeezed into a short text, so drawings are small enough to
