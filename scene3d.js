@@ -393,11 +393,11 @@
     const arms = [], armPath = [];
     const A = 0.29, B = 0.26; // upper arm, forearm
     for (const side of [-1, 1]) {
-      const S = new T.Vector3(side * 0.19, 0.555, 0);
-      const W = new T.Vector3(side * 0.07, 0.175, 0.235);
+      const S = new T.Vector3(side * 0.185, 0.555, 0);
+      const W = new T.Vector3(side * 0.065, 0.175, 0.235);
       const u = W.clone().sub(S); const d = Math.min(A + B - 0.001, u.length()); u.normalize();
       const cosA = Math.max(-1, Math.min(1, (A * A + d * d - B * B) / (2 * A * d)));
-      const pole = new T.Vector3(side, -0.2, -0.5).normalize();
+      const pole = new T.Vector3(side * 0.6, -0.2, -0.7).normalize();
       const pp = pole.sub(u.clone().multiplyScalar(pole.dot(u))).normalize();
       const E = S.clone().add(u.clone().multiplyScalar(A * cosA)).add(pp.multiplyScalar(A * Math.sqrt(1 - cosA * cosA)));
       const sh = new T.Group(); sh.position.copy(S); upper.add(sh);
@@ -420,26 +420,69 @@
       armPath.push({ S, E });
     }
 
-    // ropes around the chest and upper arms, tied to the chair back; tape around the ankles
+    // Ropes pulled tight around the chest and upper arms and around the chair's back posts.
+    // At each rope height we take the outline of the chest, both arms and the posts, wrap
+    // the rope around that outline (like a real rope would) and pull it in a little so it
+    // presses into the body.
     const straps = new T.Group(); seat.add(straps);
-    const ropeYs = [0.87, 0.905, 0.94];
-    let xh = 0.22, zmax = 0.11;
-    for (const y of ropeYs) {
-      const yu = y - 0.5; // in the upper-body frame
+    const TP = [[0, -0.03], [0.08, -0.02], [0.128, 0.01], [0.14, 0.06], [0.132, 0.13], [0.118, 0.21], [0.118, 0.27], [0.135, 0.35], [0.158, 0.43], [0.17, 0.49], [0.168, 0.54], [0.148, 0.585], [0.09, 0.615], [0.05, 0.63], [0, 0.635]];
+    const torsoR = (yu) => { for (let i = 1; i < TP.length; i++) if (yu <= TP[i][1]) { const [r0, y0] = TP[i - 1], [r1, y1] = TP[i]; return r0 + (r1 - r0) * (yu - y0) / (y1 - y0); } return 0; };
+    const ROPE_R = 0.0115;
+    function hullAt(y) {
+      const yu = y - 0.5, pts = [];
+      const tr = torsoR(yu);
+      for (let i = 0; i < 32; i++) { const a = i / 32 * Math.PI * 2; pts.push([Math.cos(a) * tr * 1.2, Math.sin(a) * tr * 0.56]); }
       for (const { S, E } of armPath) {
         const t = Math.max(0, Math.min(1, (S.y - yu) / (S.y - E.y)));
-        const x = S.x + (E.x - S.x) * t, z = S.z + (E.z - S.z) * t;
-        xh = Math.max(xh, Math.abs(x) + 0.056); zmax = Math.max(zmax, z + 0.056);
+        const cx = S.x + (E.x - S.x) * t, cz = S.z + (E.z - S.z) * t, r = 0.049 - 0.004 * t;
+        for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; pts.push([cx + Math.cos(a) * r, cz + Math.sin(a) * r]); }
       }
+      for (const px of [-0.2, 0.2]) for (const [dx, dz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) pts.push([px + dx * 0.021, -0.215 + dz * 0.021]);
+      // convex hull (monotone chain)
+      pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+      const lo = [], hi = [];
+      for (const p of pts) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+      for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; while (hi.length >= 2 && cross(hi[hi.length - 2], hi[hi.length - 1], p) <= 0) hi.pop(); hi.push(p); }
+      const hull = lo.slice(0, -1).concat(hi.slice(0, -1));
+      // push each point outwards by the rope's thickness, minus a little so it bites in
+      const out = ROPE_R - 0.0045, n = hull.length, res = [];
+      for (let i = 0; i < n; i++) {
+        const p = hull[i], a = hull[(i - 1 + n) % n], b = hull[(i + 1) % n];
+        let nx = (p[1] - a[1]) + (b[1] - p[1]), nz = -((p[0] - a[0]) + (b[0] - p[0]));
+        const l = Math.hypot(nx, nz) || 1; nx /= l; nz /= l;
+        res.push(new T.Vector3(p[0] - nx * out, y, p[1] - nz * out));
+      }
+      // make sure the outward direction is right (hull winding)
+      const c = res.reduce((m, v) => m.add(v), new T.Vector3()).multiplyScalar(1 / n);
+      const test = hull[0], v0 = res[0];
+      if (Math.hypot(v0.x - c.x, v0.z - c.z) < Math.hypot(test[0] - c.x, test[1] - c.z)) for (let i = 0; i < n; i++) { const p = hull[i]; res[i].set(p[0] + (p[0] - res[i].x), y, p[1] + (p[1] - res[i].z)); }
+      return res;
     }
-    for (const y of ropeYs) straps.add(ropeLoop(xh + 0.006, -0.25, zmax + 0.006, y));
-    const knot = new T.Mesh(new T.SphereGeometry(0.026, 12, 10), ropeMat); knot.scale.set(1.2, 1, 0.8); knot.position.set(0, 0.905, -0.255); straps.add(knot);
-    const tail = new T.Mesh(new T.CylinderGeometry(0.01, 0.009, 0.22, 8), ropeMat); tail.position.set(0.02, 0.8, -0.258); tail.rotation.z = 0.15; straps.add(tail);
+    function ropeAlong(points, closed = true) {
+      const curve = new T.CatmullRomCurve3(points, closed, 'centripetal');
+      const geo = new T.TubeGeometry(curve, Math.max(60, points.length * 3), ROPE_R, 8, closed);
+      const m = new T.Mesh(geo, ropeMat.clone());
+      m.material.map = ropeTex.clone(); m.material.map.needsUpdate = true; m.material.map.repeat.set(Math.round(curve.getLength() / 0.035), 1);
+      return m;
+    }
+    const ropeYs = [0.862, 0.885, 0.908, 0.931];
+    for (const y of ropeYs) straps.add(ropeAlong(hullAt(y)));
+    // a short vertical rope cinching the coils together at each side, and a knot at the back
+    for (const side of [-1, 1]) {
+      const pts = ropeYs.map((y) => { const h = hullAt(y); let best = h[0]; for (const p of h) if (side * p.x > side * best.x) best = p; return best.clone(); });
+      pts.unshift(pts[0].clone().add(new T.Vector3(0, -0.02, 0))); pts.push(pts[pts.length - 1].clone().add(new T.Vector3(0, 0.02, 0)));
+      for (const p of pts) p.x += side * 0.006;
+      straps.add(ropeAlong(pts, false));
+    }
+    const knot = new T.Mesh(new T.SphereGeometry(0.026, 12, 10), ropeMat); knot.scale.set(1.3, 1.1, 0.8); knot.position.set(0, 0.9, -0.25); straps.add(knot);
+    const tail = new T.Mesh(new T.CylinderGeometry(0.01, 0.009, 0.24, 8), ropeMat); tail.position.set(0.025, 0.78, -0.252); tail.rotation.z = 0.15; straps.add(tail);
     seat.updateMatrixWorld(true);
     const ap = ankles.map((o) => seat.worldToLocal(o.getWorldPosition(new T.Vector3())));
     const ax = Math.abs(ap[0].x - ap[1].x) / 2, mid = ap[0].clone().add(ap[1]).multiplyScalar(0.5);
     const tape = new T.Mesh(new T.CylinderGeometry(1, 1, 1, 28, 1, true), tapeMat);
-    tape.scale.set(ax + 0.052, 0.06, 0.058); tape.position.copy(mid); straps.add(tape);
+    tape.scale.set(ax + 0.043, 0.065, 0.047); tape.position.copy(mid); straps.add(tape);
+    const tape2 = new T.Mesh(tape.geometry, tapeMat); tape2.scale.set(ax + 0.046, 0.03, 0.05); tape2.position.copy(mid).add(new T.Vector3(0, 0.035, 0)); tape2.rotation.z = 0.08; straps.add(tape2);
     const ring = new T.Mesh(G.ring, new T.MeshBasicMaterial({ color: 0xf4c542, transparent: true, opacity: 0.9 }));
     ring.rotation.x = Math.PI / 2; ring.position.set(0, 0.02, 0.02); ring.visible = false; seat.add(ring);
 
