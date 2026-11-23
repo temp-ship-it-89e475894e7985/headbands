@@ -17,7 +17,9 @@ The host can change the turn timer, or switch it off, in the lobby or during a g
 ## Headbands and looking around
 - In the lobby, pick a headband style (plain, bow, cat ears, bunny ears, flowers, sweatband, stripes, bandana, spikes, horns or halo) and a colour.
 - During a game, move your mouse (or drag on a phone) to look around. Everyone sees your mannequin's head turn.
-- Click or tap a player to zoom in on their face. Your mannequin leans in, and everyone can see it.
+- Click or tap a player to zoom in on their face. Your mannequin's head peers in and your name tag says who you're looking at, so everyone can see it.
+- Tap Yes, No or Maybe to answer the asking player, or send a quick reaction; it pops up above your head.
+- Keep private notes during a round (only you can see them).
 
 ## Good to know
 - No accounts or downloads. It works in any modern browser on phones and computers.

@@ -214,6 +214,7 @@
     all: (code) => `${TOPIC_ROOT}${code}/all`,
     check: (code) => `${TOPIC_ROOT}${code}/check`,
     look: (code) => `${TOPIC_ROOT}${code}/look`,
+    fx: (code) => `${TOPIC_ROOT}${code}/fx`,
   };
 
   // ==========================================================
@@ -285,6 +286,7 @@
     Net.sub(T.up(code));
     Net.sub(T.check(code));
     Net.sub(T.look(code));
+    Net.sub(T.fx(code));
 
     let checked = !!resumeState;
     const t0 = now();
@@ -329,6 +331,7 @@
       return;
     }
     if (topic === T.look(code)) return onLookMsg(m);
+    if (topic === T.fx(code)) return onFxMsg(m);
     if (topic !== T.up(code) || app.screen !== 'game') return;
     const key = String(m.key || '').slice(0, 40);
     if (!key || key === myKey) return;
@@ -585,6 +588,7 @@
     Net.sub(T.down(code, myKey));
     Net.sub(T.all(code));
     Net.sub(T.look(code));
+    Net.sub(T.fx(code));
     if (client.timer) client.timer.stop();
     let lastTick = now();
     client.timer = every(2000, () => {
@@ -617,6 +621,7 @@
   function clientOnMsg(topic, m) {
     if (app.role !== 'client') return;
     if (topic === T.look(app.code)) return onLookMsg(m);
+    if (topic === T.fx(app.code)) return onFxMsg(m);
     if (m.t === 'state' && topic === T.down(app.code, myKey)) {
       if (client.everConnected && m.v < client.v) return; // older message arriving late
       client.v = m.v;
@@ -714,6 +719,7 @@
     else if (app.screen === 'game' && app.view) html = gameHTML();
     else html = connectingHTML();
     root.innerHTML = html;
+    document.body.classList.toggle('light', app.screen === 'home');
     for (const sel in scrolls) { const el = root.querySelector(sel); if (el) el.scrollTop = scrolls[sel]; }
     attachPersistent();
 
@@ -1053,6 +1059,29 @@
       Net.pub(T.look(app.code), { t: 'look', pid: app.me, y: l.yaw, p: l.pitch, i: l.inspect });
     });
   }
+  // answers (yes / no / maybe) and reactions pop up above a player's head
+  const ANSWERS = { yes: ['Yes', '#1f7a4d'], no: ['No', '#b3261e'], maybe: ['Maybe', '#9a6b00'] };
+  const EMOTES = { laugh: '😂', think: '🤔', facepalm: '🤦', wow: '😮', clap: '👏' };
+  let lastFx = 0;
+  function sendFx(kind, value) {
+    if (!app.code || !app.me || now() - lastFx < 700) return;
+    lastFx = now();
+    Net.pub(T.fx(app.code), { t: 'fx', pid: app.me, k: kind, v: value });
+    showFx(app.me, kind, value);
+  }
+  function showFx(pid, kind, value) {
+    const text = kind === 'answer' ? (ANSWERS[value] || [])[0] : EMOTES[value];
+    if (!text) return;
+    if (use3D) window.Table3D.bubble(pid, text, kind === 'answer' ? ANSWERS[value][1] : '#1c2321');
+    const p = app.view && P(pid);
+    if (pid === app.me) toast(kind === 'answer' ? `You answered ${text}` : `You reacted ${text}`);
+    else if (!use3D && p) toast(`${p.name}: ${text}`);
+  }
+  function onFxMsg(m) {
+    if (m.t !== 'fx' || !m.pid || m.pid === app.me) return;
+    showFx(String(m.pid).slice(0, 8), m.k === 'answer' ? 'answer' : 'emote', String(m.v || ''));
+  }
+
   function onLookMsg(m) {
     if (!use3D || m.t !== 'look' || !m.pid || m.pid === app.me) return;
     window.Table3D.setLook(String(m.pid).slice(0, 8), +m.y, +m.p, m.i ? String(m.i).slice(0, 8) : '');
@@ -1139,13 +1168,24 @@
           <div class="note">${myTurn ? 'Ask a yes-or-no question out loud.' : `Answer ${esc(turnP.name)}'s questions.`}${turnP.online ? '' : ` ${esc(turnP.name)} is away.`}</div></div>
           <div class="timer ${v.settings.turnSeconds ? '' : 'hidden'}" id="timer" aria-label="Time left">--</div>
         </div>
-        ${myTurn ? '<button class="btn primary wide" data-act="next">End my turn</button>' : ''}
+        ${myTurn ? '<button class="btn primary wide" data-act="next">End my turn</button>' : `<div class="answers" role="group" aria-label="Answer">
+          <button class="ans yes" data-act="fx" data-k="answer" data-v="yes">Yes</button>
+          <button class="ans no" data-act="fx" data-k="answer" data-v="no">No</button>
+          <button class="ans maybe" data-act="fx" data-k="answer" data-v="maybe">Maybe</button></div>`}
       </section>` : ''}
       <section class="blk">
         <h2>At the table</h2>
         ${playerRows(v.order)}
         ${watchers.length ? `<p class="note">Watching: ${watchers.map((p) => esc(p.name)).join(', ')}${amPlaying ? '' : '. You\'ll get a seat next round.'}</p>` : ''}
       </section>
+      <section class="blk">
+        <h2>React</h2>
+        <div class="emotes">${Object.entries(EMOTES).map(([k, e]) => `<button class="emo" data-act="fx" data-k="emote" data-v="${k}" aria-label="${k}" title="${k}">${e}</button>`).join('')}</div>
+      </section>
+      ${amPlaying ? `<section class="blk">
+        <h2>Your notes</h2>
+        <textarea id="notes" class="inp sm notes" rows="4" maxlength="600" placeholder="Only you can see this. For example: not an animal, bigger than a car…">${esc(store.get(notesKey(), ''))}</textarea>
+      </section>` : ''}
       ${amPlaying && myRes ? `<section class="blk"><h2>Your face</h2>${faceImg(v.words[app.me], 'faceimg', 320)}</section>` : ''}
       ${hostMe ? `<section class="blk">
         <h2>Host controls</h2>
@@ -1159,6 +1199,8 @@
       ${amPlaying && !myRes ? '<section class="blk last"><button class="btn quiet" data-act="giveup">Give up and reveal my face</button></section>' : ''}`;
     return [stage, side];
   }
+
+  function notesKey() { const v = app.view; return `hb-notes-${v ? v.code + '-' + v.round : ''}`; }
 
   // flat fallback for devices without 3D
   function tileHTML(id) {
@@ -1322,6 +1364,7 @@
       case 'change': pickEditing = true; render(); break;
       case 'pickfor': hostCoverFor = b.dataset.id; render(); break;
       case 'player': openPlayer(b.dataset.id); break;
+      case 'fx': sendFx(b.dataset.k === 'answer' ? 'answer' : 'emote', b.dataset.v); break;
       case 'gear-style': case 'gear-color': {
         const mine = P(app.me) || {};
         const gear = { style: act === 'gear-style' ? b.dataset.style : mine.style, color: act === 'gear-color' ? b.dataset.color : mine.color };
@@ -1349,6 +1392,7 @@
       customTimer = setTimeout(() => send({ a: 'settings', settings: { customTheme: el.value } }), 400);
     }
     if (el.id === 'code') { const c = cleanCode(el.value); if (c !== el.value) el.value = c; }
+    if (el.id === 'notes') store.set(notesKey(), el.value);
   });
   root.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;

@@ -291,3 +291,34 @@ select.inp option { background: var(--felt-deep); color: var(--chalk); }
 .hint-touch { display: none; }
 @media (hover: none), (pointer: coarse) { .hint-mouse { display: none; } .hint-touch { display: inline; } }
 .phase-lobby .side .blk.last { position: sticky; bottom: 0; background: var(--felt-deep); border-top: 1px solid var(--line); }
+
+/* answers, reactions, notes */
+.answers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 14px; }
+.ans { font: inherit; font-weight: 700; font-size: 15px; padding: 10px 4px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--felt-deep); color: var(--chalk); cursor: pointer; }
+.ans.yes:hover, .ans.yes:active { background: #1f7a4d; border-color: #1f7a4d; }
+.ans.no:hover, .ans.no:active { background: #b3261e; border-color: #b3261e; }
+.ans.maybe:hover, .ans.maybe:active { background: #9a6b00; border-color: #9a6b00; }
+.emotes { display: flex; gap: 6px; }
+.emo { flex: 1; font-size: 22px; line-height: 1; padding: 8px 0; border-radius: var(--r-sm); border: 1px solid var(--line); background: none; cursor: pointer; }
+.emo:hover { background: rgba(231, 239, 234, .08); }
+.emo:active { transform: scale(.92); }
+.notes { resize: vertical; min-height: 84px; line-height: 1.4; }
+
+/* ---------- home page: light, to match the white room ---------- */
+body.light, body.light #app { background: #e9e8e4; color: var(--ink); }
+html:has(body.light) { background: #e9e8e4; }
+.light .hero-shade { background: linear-gradient(90deg, #e9e8e4 0%, rgba(233, 232, 228, .93) 30%, rgba(233, 232, 228, .35) 52%, rgba(233, 232, 228, 0) 66%), linear-gradient(0deg, #e9e8e4 0%, rgba(233, 232, 228, 0) 18%); }
+.light .wordmark { color: var(--ink); }
+.light .wordmark .band { fill: var(--ink); stroke: var(--ink); }
+.light .wordmark .card { fill: #fff; stroke: var(--ink); stroke-width: 1.4; }
+.light .lede, .light .small-print { color: #4c5450; }
+.light .sheet { background: #fff; box-shadow: 0 1px 0 #d6d5cf, 0 20px 44px -22px rgba(30, 30, 25, .35); border: 1px solid #dcdbd5; }
+.light .sheet .inp { background: #fbfbfa; }
+.light .rules { color: #4c5450; }
+.light .rules h2, .light .rules li b { color: var(--ink); }
+.light .rules li { border-top-color: #d3d2cc; }
+.light .rules li::before { color: #b9850f; }
+.light .btn.quiet { color: var(--ink-2); }
+@media (max-width: 900px) {
+  .light .hero-shade { background: linear-gradient(0deg, #e9e8e4 0%, rgba(233, 232, 228, 0) 40%); }
+}

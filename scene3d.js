@@ -24,32 +24,52 @@
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = T.SRGBColorSpace;
   renderer.toneMapping = T.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.2;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = T.PCFSoftShadowMap;
   el.appendChild(renderer.domElement);
 
   const scene = new T.Scene();
-  scene.background = new T.Color(0x11241f);
-  scene.fog = new T.Fog(0x11241f, 7, 22);
+  scene.background = new T.Color(0x1c1c1b);
   const camera = new T.PerspectiveCamera(50, 1, 0.05, 100);
   camera.rotation.order = 'YXZ';
 
-  // ---------- room ----------
-  scene.add(new T.HemisphereLight(0xfff1dc, 0x16302a, 0.8));
-  const sun = new T.DirectionalLight(0xfff4e6, 1.4); sun.position.set(3, 8, 4); scene.add(sun);
-  const lamp = new T.PointLight(0xffd59a, 16, 9, 2); lamp.position.set(0, 2.5, 0); scene.add(lamp);
-  const floor = new T.Mesh(new T.CircleGeometry(16, 48), new T.MeshStandardMaterial({ color: 0x14302a, roughness: 1 }));
-  floor.rotation.x = -Math.PI / 2; scene.add(floor);
-  const rug = new T.Mesh(new T.CircleGeometry(1, 48), new T.MeshStandardMaterial({ color: 0x1a3b33, roughness: 1 }));
-  rug.rotation.x = -Math.PI / 2; rug.position.y = 0.005; scene.add(rug);
-  const shade = new T.Mesh(new T.ConeGeometry(0.32, 0.26, 32, 1, true), new T.MeshStandardMaterial({ color: 0x23302c, roughness: 0.4, metalness: 0.3, side: T.DoubleSide }));
-  shade.position.set(0, 2.68, 0); scene.add(shade);
-  const bulb = new T.Mesh(new T.SphereGeometry(0.07, 16, 12), new T.MeshBasicMaterial({ color: 0xfff1c9 })); bulb.position.set(0, 2.56, 0); scene.add(bulb);
-  const cord = new T.Mesh(new T.CylinderGeometry(0.008, 0.008, 3, 6), new T.MeshBasicMaterial({ color: 0x222222 })); cord.position.set(0, 4.3, 0); scene.add(cord);
-  const woodMat = new T.MeshStandardMaterial({ color: 0x5a3c26, roughness: 0.55 });
-  const feltMat = new T.MeshStandardMaterial({ color: 0x1f6b52, roughness: 0.95 });
-  const tableTop = new T.Mesh(new T.CylinderGeometry(1, 1, 0.06, 64), [woodMat, feltMat, woodMat]); tableTop.position.y = 0.74;
-  const tableEdge = new T.Mesh(new T.TorusGeometry(1, 0.035, 12, 64), woodMat); tableEdge.rotation.x = Math.PI / 2; tableEdge.position.y = 0.74;
-  const tableLeg = new T.Mesh(new T.CylinderGeometry(0.09, 0.28, 0.72, 24), woodMat); tableLeg.position.y = 0.36;
+  // ---------- room: plain white, lit by one dim lamp that flickers ----------
+  const ROOM = 6.5;
+  const white = (c, rough = 0.92, side = T.FrontSide) => new T.MeshStandardMaterial({ color: c, roughness: rough, side });
+  const walls = new T.Mesh(new T.CylinderGeometry(ROOM, ROOM, 5, 56, 1, true), white(0xe9e7e2, 0.95, T.BackSide)); walls.position.y = 2.5; walls.receiveShadow = true; scene.add(walls);
+  const ceiling = new T.Mesh(new T.CircleGeometry(ROOM, 56), white(0xdedcd6)); ceiling.rotation.x = Math.PI / 2; ceiling.position.y = 5; scene.add(ceiling);
+  const floor = new T.Mesh(new T.CircleGeometry(ROOM, 56), white(0xd9d6cf, 0.85)); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+  const skirting = new T.Mesh(new T.CylinderGeometry(ROOM - 0.01, ROOM - 0.01, 0.12, 56, 1, true), white(0xcfccc4, 0.8, T.BackSide)); skirting.position.y = 0.06; scene.add(skirting);
+  const rug = new T.Mesh(new T.CircleGeometry(1, 48), white(0xe4e1da, 1)); rug.rotation.x = -Math.PI / 2; rug.position.y = 0.004; rug.receiveShadow = true; scene.add(rug);
+
+  const ambient = new T.HemisphereLight(0xffffff, 0x9a9890, 0.38); scene.add(ambient);
+  const LAMP_Y = 2.55;
+  const spot = new T.SpotLight(0xfff0dc, 34, 10, 0.95, 0.55, 1.5);
+  spot.position.set(0, LAMP_Y, 0); spot.target.position.set(0, 0, 0); scene.add(spot, spot.target);
+  spot.castShadow = true; spot.shadow.mapSize.set(1024, 1024); spot.shadow.bias = -0.0004; spot.shadow.camera.near = 0.3; spot.shadow.camera.far = 8;
+  const glow = new T.PointLight(0xfff0dc, 7, 12, 1.3); glow.position.set(0, LAMP_Y + 0.25, 0); scene.add(glow); // dim light on the walls and ceiling
+  const shade = new T.Mesh(new T.ConeGeometry(0.3, 0.24, 32, 1, true), new T.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.45, metalness: 0.4, side: T.DoubleSide }));
+  shade.position.set(0, LAMP_Y + 0.13, 0); scene.add(shade);
+  const bulbMat = new T.MeshBasicMaterial({ color: 0xfff1c9 });
+  const bulb = new T.Mesh(new T.SphereGeometry(0.065, 16, 12), bulbMat); bulb.position.set(0, LAMP_Y, 0); scene.add(bulb);
+  const cord = new T.Mesh(new T.CylinderGeometry(0.008, 0.008, 5 - LAMP_Y, 6), new T.MeshBasicMaterial({ color: 0x222222 })); cord.position.set(0, (5 + LAMP_Y) / 2 + 0.1, 0); scene.add(cord);
+  // flicker: mostly steady, now and then a short stutter
+  const flick = { next: 4000 + Math.random() * 6000, until: 0, level: 1 };
+  function flicker(t) {
+    if (t > flick.next) { flick.until = t + 250 + Math.random() * 700; flick.next = t + 5000 + Math.random() * 9000; }
+    let target = 0.96 + Math.sin(t / 90) * 0.02 + Math.sin(t / 37) * 0.015;
+    if (t < flick.until) target = Math.random() < 0.45 ? 0.18 + Math.random() * 0.3 : 0.85 + Math.random() * 0.2;
+    flick.level += (target - flick.level) * (t < flick.until ? 0.7 : 0.15);
+    spot.intensity = 34 * flick.level; glow.intensity = 7 * flick.level;
+    bulbMat.color.setRGB(1, 0.94, 0.79).multiplyScalar(0.35 + 0.65 * flick.level);
+  }
+
+  // the table: plain white, round, small
+  const tableMat = white(0xf1efea, 0.6);
+  const tableTop = new T.Mesh(new T.CylinderGeometry(1, 1, 0.05, 64), tableMat); tableTop.position.y = 0.74; tableTop.castShadow = true; tableTop.receiveShadow = true;
+  const tableEdge = new T.Mesh(new T.TorusGeometry(1, 0.026, 12, 64), white(0xdcd9d2, 0.55)); tableEdge.rotation.x = Math.PI / 2; tableEdge.position.y = 0.74;
+  const tableLeg = new T.Mesh(new T.CylinderGeometry(0.06, 0.24, 0.72, 24), tableMat); tableLeg.position.y = 0.36; tableLeg.castShadow = true;
   scene.add(tableTop, tableEdge, tableLeg);
 
   // ---------- mannequin parts (shared) ----------
@@ -238,8 +258,9 @@
     }
     const upper = new T.Group(); upper.position.y = 0.5; fig.add(upper);
     const torso = add(G.torso, 0, 0, 0, upper); torso.rotation.x = 0.04;
-    add(G.neck, 0, 0.68, 0, upper);
-    const headG = new T.Group(); headG.position.set(0, 0.86, 0.008); upper.add(headG);
+    const neckG = new T.Group(); neckG.position.set(0, 0.62, 0); upper.add(neckG);
+    add(G.neck, 0, 0.06, 0, neckG);
+    const headG = new T.Group(); headG.position.set(0, 0.24, 0.008); neckG.add(headG);
     const head = new T.Mesh(G.head, plastic); head.scale.set(...HS); headG.add(head);
     const faceMat = new T.MeshStandardMaterial({ map: blankTex, roughness: 0.42 });
     const face = new T.Mesh(G.face, faceMat); face.scale.set(...HS); headG.add(face);
@@ -260,14 +281,18 @@
     ring.rotation.x = Math.PI / 2; ring.position.set(0, 0.02, 0.02); ring.visible = false; seat.add(ring);
 
     const f = {
-      id: p.id, seat, fig, upper, headG, face, faceMat, chair, ring, arms,
+      id: p.id, seat, fig, upper, neckG, headG, face, faceMat, chair, ring, arms, name: p.name, color: p.color, badge: '', tagExtra: null,
       gear: null, gearKey: '', tag: null, tagKey: '', faceKey: '',
       look: null,                  // { yaw, pitch, inspect, at } from the network
-      cur: { yaw: 0, pitch: -0.1, lean: 0, leanYaw: 0 },
+      cur: { yaw: 0, pitch: -0.1, peer: 0, peerYaw: 0 },
       phase: Math.random() * 10,
     };
-    head.userData.pid = p.id; face.userData.pid = p.id; torso.userData.pid = p.id;
-    f.pickables = [head, face, torso];
+    // bigger invisible targets so small heads are easy to click or tap
+    const hit = new T.MeshBasicMaterial({ visible: false });
+    const headHit = new T.Mesh(new T.SphereGeometry(0.24, 12, 8), hit); headG.add(headHit);
+    const bodyHit = new T.Mesh(new T.BoxGeometry(0.5, 0.75, 0.4), hit); bodyHit.position.set(0, 0.35, 0); upper.add(bodyHit);
+    for (const m of [head, face, torso, headHit, bodyHit]) m.userData.pid = p.id;
+    f.pickables = [headHit, bodyHit];
     return f;
   }
 
@@ -333,8 +358,8 @@
     figures.clear();
     const list = data.players;
     const n = Math.max(list.length, 2);
-    R = Math.max(1.5, 0.72 + n * 0.2);
-    const tr = R - 0.45;
+    R = Math.max(1.25, 0.45 + n * 0.16);
+    const tr = R - 0.6;
     tableTop.scale.set(tr, 1, tr); tableEdge.scale.set(tr, tr, 1);
     rug.scale.set(R + 1.2, R + 1.2, 1);
     const myIndex = mode === 'seat' ? Math.max(0, list.findIndex((p) => p.id === me)) : 0;
@@ -343,6 +368,7 @@
       const f = makeFigure(p);
       f.seat.position.set(R * Math.cos(a), 0, R * Math.sin(a));
       f.seat.lookAt(0, 0, 0);
+      f.seat.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       if (p.id === me && mode === 'seat') { f.fig.visible = false; f.chair.visible = false; }
       scene.add(f.seat);
       figures.set(p.id, f);
@@ -391,24 +417,60 @@
       }
       // name tag
       const badge = p.done === 'got' ? ord(p.place) : p.done === 'gaveup' ? 'gave up' : p.online === false ? 'away' : p.id === me && mode !== 'seat' ? 'you' : '';
-      const tk = p.name + '|' + p.color + '|' + badge;
-      if (tk !== f.tagKey) {
-        f.tagKey = tk;
-        if (f.tag) { f.seat.remove(f.tag); f.tag.material.map.dispose(); f.tag.material.dispose(); }
-        f.tag = labelSprite(p.name, p.color, badge);
-        f.tag.position.set(0, 1.78, 0);
-        f.seat.add(f.tag);
-      }
+      f.name = p.name; f.color = p.color; f.badge = badge;
+      refreshTag(f);
       f.ring.visible = !!p.isTurn && !(p.id === me && mode === 'seat');
       f.online = p.online !== false;
     }
     el.classList.toggle('seat', mode === 'seat');
   }
 
+  function refreshTag(f) {
+    // a player inspecting someone shows "looking at <name>" under their name
+    const L = f.look && performance.now() - f.look.at < 15000 ? f.look : null;
+    const target = L && L.inspect && figures.get(L.inspect);
+    const extra = target ? `looking at ${target.name}` : f.badge;
+    const tk = f.name + '|' + f.color + '|' + extra;
+    if (tk === f.tagKey) return;
+    f.tagKey = tk;
+    if (f.tag) { f.seat.remove(f.tag); f.tag.material.map.dispose(); f.tag.material.dispose(); }
+    f.tag = labelSprite(f.name, f.color, extra);
+    f.tag.position.set(0, 1.78, 0);
+    f.seat.add(f.tag);
+  }
+
+  // speech bubbles above heads (answers and reactions)
+  const bubbles = [];
+  function bubble(id, text, color = '#1c2321') {
+    const f = figures.get(id); if (!f) return;
+    for (const b of bubbles) if (b.f === f) b.end = 0; // replace an older bubble
+    const c = document.createElement('canvas');
+    const ctx = c.getContext('2d');
+    const emoji = /\p{Extended_Pictographic}/u.test(text) && text.length <= 4;
+    const font = emoji ? '64px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif' : '700 44px Archivo, "Helvetica Neue", Arial, sans-serif';
+    ctx.font = font;
+    const w = Math.ceil(ctx.measureText(text).width) + 56;
+    c.width = Math.max(110, w); c.height = 104;
+    const r = 20, bh = 84;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.moveTo(r, 0); ctx.arcTo(c.width, 0, c.width, bh, r); ctx.arcTo(c.width, bh, 0, bh, r); ctx.arcTo(0, bh, 0, 0, r); ctx.arcTo(0, 0, c.width, 0, r); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(c.width / 2 - 12, bh - 1); ctx.lineTo(c.width / 2, c.height); ctx.lineTo(c.width / 2 + 12, bh - 1); ctx.closePath(); ctx.fill();
+    ctx.font = font; ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, c.width / 2, bh / 2 + 3);
+    const tex = new T.CanvasTexture(c); tex.colorSpace = T.SRGBColorSpace;
+    const s = new T.Sprite(new T.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
+    s.renderOrder = 11;
+    s.userData.base = new T.Vector2(c.width, c.height);
+    s.position.set(0, 2.02, 0);
+    f.seat.add(s);
+    bubbles.push({ f, s, start: performance.now(), end: performance.now() + 3200 });
+  }
+
   // someone else's head direction (yaw/pitch relative to their seat) and who they inspect
   function setLook(id, yaw, pitch, inspect) {
     const f = figures.get(id); if (!f) return;
     f.look = { yaw: +yaw || 0, pitch: +pitch || 0, inspect: inspect || '', at: performance.now() };
+    refreshTag(f);
   }
 
   // ---------- camera ----------
@@ -419,7 +481,7 @@
   function baseEye() { return new T.Vector3(0, 1.5, R + 0.42); }
   function eye() {
     if (mode !== 'seat') {
-      const d = demo ? R * 1.65 + 1.3 : R * 1.9 + 1.4;
+      const d = demo ? R * 1.65 + 1.2 : R * 1.8 + 1.2;
       const h = demo ? R * 0.55 + 1.95 : R * 0.7 + 1.9;
       return new T.Vector3(Math.sin(view.orbit) * d, h, Math.cos(view.orbit) * d);
     }
@@ -523,16 +585,15 @@
   const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   function animateFigure(f, t, dt) {
     const k = Math.min(1, dt * 4);
-    let yaw = 0, pitch = -0.1, lean = 0, leanYaw = 0;
+    let yaw = 0, pitch = -0.1, peer = 0, peerYaw = 0;
     const L = f.look && performance.now() - f.look.at < 15000 ? f.look : null;
     if (L) {
       yaw = L.yaw; pitch = L.pitch;
       if (L.inspect && figures.get(L.inspect)) {
-        // leaning in to inspect someone: body and head turn to them
-        const target = headWorld(L.inspect);
-        f.seat.worldToLocal(tmpV.copy(target));
-        const a = Math.atan2(tmpV.x, tmpV.z);
-        lean = 0.32; leanYaw = a * 0.45; yaw = a - leanYaw; pitch = Math.atan2(tmpV.y - 1.36, Math.hypot(tmpV.x, tmpV.z)) * 0.6;
+        // peering at someone: the neck bends forward so the head pushes towards them
+        f.seat.worldToLocal(tmpV.copy(headWorld(L.inspect)));
+        peerYaw = Math.max(-1.2, Math.min(1.2, Math.atan2(tmpV.x, tmpV.z)));
+        peer = 1; yaw = 0; pitch = 0;
       }
     } else if (lastData) {
       // nobody steering this one: look around now and then, mostly at whoever's turn it is
@@ -547,14 +608,17 @@
     yaw = Math.max(-1.35, Math.min(1.35, wrapA(yaw)));
     f.cur.yaw += (yaw - f.cur.yaw) * k;
     f.cur.pitch += (pitch - f.cur.pitch) * k;
-    f.cur.lean += (lean - f.cur.lean) * Math.min(1, dt * 3);
-    f.cur.leanYaw += (leanYaw - f.cur.leanYaw) * Math.min(1, dt * 3);
-    // shoulders follow the head a little, so turning looks natural
-    f.upper.rotation.set(f.cur.lean, f.cur.leanYaw + f.cur.yaw * 0.18, 0);
-    f.headG.rotation.set(-f.cur.pitch * 0.9, f.cur.yaw * 0.82, Math.sin(t / 1700 + f.phase) * 0.02);
-    f.upper.position.y = 0.5 + Math.sin(t / 1100 + f.phase) * 0.004; // breathing
+    f.cur.peer += (peer - f.cur.peer) * Math.min(1, dt * 3.5);
+    f.cur.peerYaw += (peerYaw - f.cur.peerYaw) * Math.min(1, dt * 3.5);
+    const pe = f.cur.peer;
+    // only the head (and neck) moves; the body and arms stay still
+    f.neckG.rotation.set(0.62 * pe, f.cur.peerYaw * pe + f.cur.yaw * 0.2 * (1 - pe), 0);
+    f.neckG.position.z = 0.03 * pe;
+    f.headG.rotation.set(-f.cur.pitch * 0.9 * (1 - pe) - 0.5 * pe, f.cur.yaw * 0.8 * (1 - pe), Math.sin(t / 1700 + f.phase) * 0.02 + 0.14 * pe);
+    f.upper.position.y = 0.5 + Math.sin(t / 1100 + f.phase) * 0.003; // breathing
     if (f.gear) for (const fn of f.gear.userData.anim) fn(t + f.phase * 1000);
     if (f.ring.visible) { const s = 1 + Math.sin(t / 250) * 0.06; f.ring.scale.set(s, s, s); }
+    if (L && performance.now() - L.at > 15000) refreshTag(f);
   }
 
   let running = false, last = 0, lookSent = { yaw: 9, pitch: 9, inspect: '', at: 0 };
@@ -597,6 +661,19 @@
     if (shift && W) camera.setViewOffset(W, Hh, -W * shift, 0, W, Hh); else if (camera.view && camera.view.enabled) camera.clearViewOffset();
     camera.updateProjectionMatrix();
 
+    flicker(t);
+    const nowB = performance.now();
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i];
+      const age = nowB - b.start, left = b.end - nowB;
+      if (left <= 0) { b.f.seat.remove(b.s); b.s.material.map.dispose(); b.s.material.dispose(); bubbles.splice(i, 1); continue; }
+      const pop = Math.min(1, age / 160);
+      b.s.material.opacity = Math.min(1, left / 400);
+      const px = 44 * (0.7 + 0.3 * pop);
+      const sh = (2 * px / Math.max(1, Hh)) * Math.tan(camera.fov * Math.PI / 360);
+      b.s.scale.set(sh * b.s.userData.base.x / b.s.userData.base.y, sh, 1);
+      b.s.visible = b.f.fig.visible;
+    }
     for (const f of figures.values()) {
       animateFigure(f, t, dt);
       // name tags hide while you're zoomed in on someone
@@ -664,6 +741,7 @@
     setLook,
     focus,
     gearThumb,
+    bubble,
     start, stop, resize,
     onPick(cb) { onPickCb = cb; },
     onLook(cb) { onLookCb = cb; },
@@ -671,7 +749,7 @@
     _debug() {
       return {
         figures: [...figures.keys()], me, mode,
-        faces: [...figures.values()].map((f) => ({ id: f.id, drawn: f.faceKey !== 'blank', visible: f.fig.visible, gear: f.gearKey, lean: +f.cur.lean.toFixed(2), yaw: +f.cur.yaw.toFixed(2) })),
+        faces: [...figures.values()].map((f) => ({ id: f.id, drawn: f.faceKey !== 'blank', visible: f.fig.visible, gear: f.gearKey, lean: +f.cur.peer.toFixed(2), yaw: +f.cur.yaw.toFixed(2), tag: f.tagKey })), bubbles: bubbles.length,
         view: { yaw: +view.yaw.toFixed(2), focus: focusId },
       };
     },
