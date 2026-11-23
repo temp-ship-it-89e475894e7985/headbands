@@ -327,34 +327,49 @@
   }
 
   // ---------- one mannequin in its chair ----------
+  // rope texture: twisted fibres
+  const ropeTex = (() => {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 32; const x = c.getContext('2d');
+    x.fillStyle = '#a88a5c'; x.fillRect(0, 0, 64, 32);
+    for (let i = -2; i < 6; i++) {
+      const g = x.createLinearGradient(i * 16, 0, i * 16 + 16, 32);
+      g.addColorStop(0, '#8a6d42'); g.addColorStop(0.5, '#c9ad7c'); g.addColorStop(1, '#8a6d42');
+      x.fillStyle = g; x.beginPath(); x.moveTo(i * 16, 32); x.lineTo(i * 16 + 10, 0); x.lineTo(i * 16 + 18, 0); x.lineTo(i * 16 + 8, 32); x.fill();
+    }
+    const t = new T.CanvasTexture(c); t.colorSpace = T.SRGBColorSpace; t.wrapS = t.wrapT = T.RepeatWrapping; return t;
+  })();
+  const ropeMat = new T.MeshStandardMaterial({ map: ropeTex, roughness: 0.95 });
+  const tapeMat = new T.MeshStandardMaterial({ color: 0x9da1a4, roughness: 0.45, metalness: 0.35, side: T.DoubleSide });
+  const woodChair = new T.MeshStandardMaterial({ color: 0x4a3426, roughness: 0.75 });
+  // a rope loop around a rounded rectangle (seen from above), at height y
+  function ropeLoop(xh, zmin, zmax, y, r = 0.011) {
+    const rad = 0.07, pts = [];
+    const corners = [[xh - rad, zmax - rad, 0], [-xh + rad, zmax - rad, Math.PI / 2], [-xh + rad, zmin + rad, Math.PI], [xh - rad, zmin + rad, Math.PI * 1.5]];
+    for (const [cx, cz, a0] of corners) for (let i = 0; i <= 6; i++) { const a = a0 + (i / 6) * Math.PI / 2; pts.push(new T.Vector3(cx + Math.cos(a) * rad, y + Math.sin(a * 3 + y * 40) * 0.003, cz + Math.sin(a) * rad)); }
+    const curve = new T.CatmullRomCurve3(pts, true, 'centripetal');
+    const geo = new T.TubeGeometry(curve, 120, r, 8, true);
+    const m = new T.Mesh(geo, ropeMat.clone());
+    m.material.map = ropeTex.clone(); m.material.map.needsUpdate = true; m.material.map.repeat.set(Math.round(curve.getLength() / 0.035), 1);
+    return m;
+  }
+  const DOWN = new T.Vector3(0, -1, 0);
+
   function makeFigure(p) {
     const seat = new T.Group();
+    // a plain wooden chair
     const chair = new T.Group();
-    const s = new T.Mesh(G.seat, chairMat); s.position.set(0, 0.47, -0.02);
-    const b = new T.Mesh(G.back, chairMat); b.position.set(0, 0.76, -0.24);
-    chair.add(s, b);
-    for (const [x, z] of [[-0.2, -0.21], [0.2, -0.21], [-0.2, 0.17], [0.2, 0.17]]) { const l = new T.Mesh(G.leg, chairMat); l.position.set(x, 0.23, z); chair.add(l); }
-    for (const side of [-1, 1]) {
-      const arm = new T.Mesh(G.armrest, chairMat); arm.position.set(side * 0.255, 0.715, 0.04); chair.add(arm);
-      const post = new T.Mesh(G.post, chairMat); post.position.set(side * 0.255, 0.6, 0.22); chair.add(post);
-      const post2 = new T.Mesh(G.post, chairMat); post2.position.set(side * 0.255, 0.6, -0.16); chair.add(post2);
-    }
-    const bar = new T.Mesh(G.bar, chairMat); bar.position.set(0, 0.13, 0.17); chair.add(bar);
+    const box = (w, h, d, x, y, z) => { const m = new T.Mesh(new T.BoxGeometry(w, h, d), woodChair); m.position.set(x, y, z); chair.add(m); return m; };
+    box(0.46, 0.045, 0.44, 0, 0.47, -0.02);                       // seat
+    for (const x of [-0.2, 0.2]) { box(0.04, 1.02, 0.04, x, 0.51, -0.215); box(0.04, 0.46, 0.04, x, 0.23, 0.17); } // back posts + front legs
+    box(0.44, 0.07, 0.03, 0, 0.98, -0.215); box(0.44, 0.05, 0.03, 0, 0.74, -0.215); // back rails
+    box(0.04, 0.035, 0.38, -0.2, 0.15, -0.02); box(0.04, 0.035, 0.38, 0.2, 0.15, -0.02); // side stretchers
     seat.add(chair);
-    // straps: chest to the chair back, wrists to the armrests, ankles to the chair
-    const straps = new T.Group(); seat.add(straps);
-    const chest = new T.Mesh(G.band, leather); chest.scale.set(0.215, 0.055, 0.195); chest.position.set(0, 0.93, -0.075); straps.add(chest);
-    const chestBuckle = new T.Mesh(G.buckle, brass); chestBuckle.position.set(0, 0.93, 0.122); straps.add(chestBuckle);
-    for (const side of [-1, 1]) {
-      const w = new T.Mesh(G.band, leather); w.rotation.x = Math.PI / 2; w.scale.set(0.055, 0.045, 0.07); w.position.set(side * 0.25, 0.745, 0.2); straps.add(w);
-      const wb = new T.Mesh(G.buckle, brass); wb.scale.setScalar(0.7); wb.position.set(side * 0.25, 0.815, 0.2); straps.add(wb);
-      const tether = new T.Mesh(G.tether, leather); tether.position.set(side * 0.1, 0.13, 0.31); straps.add(tether);
-    }
 
     const fig = new T.Group(); seat.add(fig);
     const add = (geo, x, y, z, parent) => { const m = new T.Mesh(geo, plastic); m.position.set(x, y, z); parent.add(m); return m; };
-    // legs stay put; the upper body can lean
+    // legs together
     const hips = new T.Group(); hips.position.y = 0.5; fig.add(hips);
+    const ankles = [];
     for (const side of [-1, 1]) {
       const hp = new T.Group(); hp.position.set(side * 0.082, 0.04, 0); hips.add(hp);
       add(G.thigh, 0, 0.02, 0, hp);
@@ -362,30 +377,69 @@
       add(G.shin, 0, 0.02, 0, kn);
       const ft = new T.Group(); ft.position.set(0, -0.45, 0); kn.add(ft);
       add(G.foot, 0, -0.02, 0.05, ft);
-      const cuff = new T.Mesh(G.band, leather); cuff.scale.set(0.045, 0.05, 0.045); cuff.position.set(0, -0.37, 0); kn.add(cuff);
-      hp.rotation.set(-Math.PI / 2 + 0.06, 0, side * 0.04); kn.rotation.set(Math.PI / 2 - 0.1, 0, 0); ft.rotation.set(0.05, 0, 0);
+      const ankle = new T.Object3D(); ankle.position.set(0, -0.37, 0); kn.add(ankle); ankles.push(ankle);
+      hp.rotation.set(-Math.PI / 2 + 0.06, 0, -side * 0.085); kn.rotation.set(Math.PI / 2 - 0.1, 0, side * 0.03); ft.rotation.set(0.05, 0, 0);
     }
     const upper = new T.Group(); upper.position.y = 0.5; fig.add(upper);
-    const torso = add(G.torso, 0, 0, 0, upper); torso.rotation.x = 0.04;
+    const torso = add(G.torso, 0, 0, 0, upper); torso.rotation.x = 0.02;
     const neckG = new T.Group(); neckG.position.set(0, 0.62, 0); upper.add(neckG);
     add(G.neck, 0, 0.06, 0, neckG);
     const headG = new T.Group(); headG.position.set(0, 0.24, 0.008); neckG.add(headG);
     const head = new T.Mesh(G.head, plastic); head.scale.set(...HS); headG.add(head);
     const faceMat = new T.MeshStandardMaterial({ map: blankTex, roughness: 0.42 });
     const face = new T.Mesh(G.face, faceMat); face.scale.set(...HS); headG.add(face);
-    const arms = [];
+
+    // arms: hands together in the lap. Each arm is aimed so the wrist lands where we want it.
+    const arms = [], armPath = [];
+    const A = 0.29, B = 0.26; // upper arm, forearm
     for (const side of [-1, 1]) {
-      const sh = new T.Group(); sh.position.set(side * 0.19, 0.555, 0); upper.add(sh);
+      const S = new T.Vector3(side * 0.19, 0.555, 0);
+      const W = new T.Vector3(side * 0.07, 0.175, 0.235);
+      const u = W.clone().sub(S); const d = Math.min(A + B - 0.001, u.length()); u.normalize();
+      const cosA = Math.max(-1, Math.min(1, (A * A + d * d - B * B) / (2 * A * d)));
+      const pole = new T.Vector3(side, -0.2, -0.5).normalize();
+      const pp = pole.sub(u.clone().multiplyScalar(pole.dot(u))).normalize();
+      const E = S.clone().add(u.clone().multiplyScalar(A * cosA)).add(pp.multiplyScalar(A * Math.sqrt(1 - cosA * cosA)));
+      const sh = new T.Group(); sh.position.copy(S); upper.add(sh);
       add(G.shoulder, 0, 0.01, 0, sh).scale.set(1.05, 0.9, 0.95);
       add(G.upperArm, 0, 0, 0, sh);
-      const el2 = new T.Group(); el2.position.set(0, -0.29, 0); sh.add(el2);
+      const qs = new T.Quaternion().setFromUnitVectors(DOWN, E.clone().sub(S).normalize());
+      sh.quaternion.copy(qs);
+      const el2 = new T.Group(); el2.position.set(0, -A, 0); sh.add(el2);
       add(G.foreArm, 0, 0, 0, el2);
-      const wr = new T.Group(); wr.position.set(0, -0.26, 0); el2.add(wr);
-      add(G.hand, 0, -0.06, 0, wr);
-      const th = add(G.thumb, side * -0.03, -0.035, 0.012, wr); th.rotation.z = side * 0.5;
-      sh.rotation.set(-0.1, 0, side * 0.17); el2.rotation.set(-Math.PI / 2 + 0.1, 0, -side * 0.17); wr.rotation.set(0.05, 0, 0); // resting on the armrests
+      const local = W.clone().sub(E).normalize().applyQuaternion(qs.clone().invert());
+      el2.quaternion.setFromUnitVectors(DOWN, local);
+      const wr = new T.Group(); wr.position.set(0, -B, 0); el2.add(wr);
+      const hand = add(G.hand, 0, -0.055, 0, wr);
+      // hands point inwards and meet in the middle, palms together
+      const want = new T.Vector3(-side, -0.25, 0.35).normalize();
+      const qe = qs.clone().multiply(el2.quaternion);
+      wr.quaternion.setFromUnitVectors(DOWN, want.applyQuaternion(qe.invert()));
+      hand.rotation.y = Math.PI / 2;
       arms.push({ sh, el: el2 });
+      armPath.push({ S, E });
     }
+
+    // ropes around the chest and upper arms, tied to the chair back; tape around the ankles
+    const straps = new T.Group(); seat.add(straps);
+    const ropeYs = [0.87, 0.905, 0.94];
+    let xh = 0.22, zmax = 0.11;
+    for (const y of ropeYs) {
+      const yu = y - 0.5; // in the upper-body frame
+      for (const { S, E } of armPath) {
+        const t = Math.max(0, Math.min(1, (S.y - yu) / (S.y - E.y)));
+        const x = S.x + (E.x - S.x) * t, z = S.z + (E.z - S.z) * t;
+        xh = Math.max(xh, Math.abs(x) + 0.056); zmax = Math.max(zmax, z + 0.056);
+      }
+    }
+    for (const y of ropeYs) straps.add(ropeLoop(xh + 0.006, -0.25, zmax + 0.006, y));
+    const knot = new T.Mesh(new T.SphereGeometry(0.026, 12, 10), ropeMat); knot.scale.set(1.2, 1, 0.8); knot.position.set(0, 0.905, -0.255); straps.add(knot);
+    const tail = new T.Mesh(new T.CylinderGeometry(0.01, 0.009, 0.22, 8), ropeMat); tail.position.set(0.02, 0.8, -0.258); tail.rotation.z = 0.15; straps.add(tail);
+    seat.updateMatrixWorld(true);
+    const ap = ankles.map((o) => seat.worldToLocal(o.getWorldPosition(new T.Vector3())));
+    const ax = Math.abs(ap[0].x - ap[1].x) / 2, mid = ap[0].clone().add(ap[1]).multiplyScalar(0.5);
+    const tape = new T.Mesh(new T.CylinderGeometry(1, 1, 1, 28, 1, true), tapeMat);
+    tape.scale.set(ax + 0.052, 0.06, 0.058); tape.position.copy(mid); straps.add(tape);
     const ring = new T.Mesh(G.ring, new T.MeshBasicMaterial({ color: 0xf4c542, transparent: true, opacity: 0.9 }));
     ring.rotation.x = Math.PI / 2; ring.position.set(0, 0.02, 0.02); ring.visible = false; seat.add(ring);
 
@@ -731,6 +785,7 @@
     if (L && performance.now() - L.at > 15000) refreshTag(f);
   }
 
+  let debugCam = null;
   let running = false, last = 0, lookSent = { yaw: 9, pitch: 9, inspect: '', at: 0 };
   function resize() {
     const w = el.clientWidth, h = el.clientHeight;
@@ -762,6 +817,7 @@
     camera.position.copy(eye());
     if (mode !== 'seat') camera.lookAt(0, demo ? 0.95 : 0.9, 0);
     else camera.rotation.set(view.pitch, view.yaw, 0);
+    if (debugCam) { camera.position.copy(debugCam.p); camera.lookAt(debugCam.t); }
     const h = mode !== 'seat' ? 1.15 : autoH * view.zoom;
     let vf = 2 * Math.atan(Math.tan(h / 2) / camera.aspect) * 180 / Math.PI;
     vf = Math.max(6, Math.min(mode !== 'seat' ? 75 : 100, vf));
@@ -819,7 +875,7 @@
   function stop() { running = false; }
   if ('ResizeObserver' in window) new ResizeObserver(resize).observe(el);
   window.addEventListener('resize', resize);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { wallKey = ''; for (const f of figures.values()) { f.tagKey = ''; f.faceKey = ''; } if (lastData) update(lastData); });
+  if (document.fonts && document.fonts.load) Promise.all(['400 120px "Permanent Marker"', '700 120px Caveat', '600 40px Archivo'].map((f) => document.fonts.load(f).catch(() => {}))).then(() => { wallKey = ''; for (const f of figures.values()) { f.tagKey = ''; f.faceKey = ''; } if (lastData) update(lastData); });
 
   // ---------- headband preview (lobby picker) ----------
   // Renders a small picture of a head wearing each style, for the picker buttons.
@@ -855,6 +911,12 @@
     start, stop, resize,
     onPick(cb) { onPickCb = cb; },
     onLook(cb) { onLookCb = cb; },
+    _cam(id, dist = 1.6, h = 1.2, side = 0) {
+      const f = figures.get(id); if (!f) { debugCam = null; return; }
+      const p = new T.Vector3(side, h, dist); f.seat.localToWorld(p);
+      const t = new T.Vector3(0, 0.85, 0.1); f.seat.localToWorld(t);
+      debugCam = { p, t };
+    },
     _screenOf(id) { const h = headWorld(id); if (!h) return null; const v = h.clone().project(camera); return [(v.x + 1) / 2, (1 - v.y) / 2]; },
     _debug() {
       return {
