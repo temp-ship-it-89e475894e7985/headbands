@@ -51,7 +51,7 @@
   // Easter eggs: some names get "improved" automatically
   const NAME_EGGS = { cait: 'CAITSUCKS' };
   function eggName(n) { return NAME_EGGS[n.toLowerCase()] || n; }
-  function cleanName(s) { return eggName(String(s || '').replace(/\s+/g, ' ').trim().slice(0, 16)); }
+  function cleanName(s) { return String(s || '').replace(/\s+/g, ' ').trim().slice(0, 16); }
   function cleanWord(s) { return String(s || '').replace(/\s+/g, ' ').trim().slice(0, 40); }
   function shareLink(code) {
     const u = new URL(location.href);
@@ -318,7 +318,7 @@
       phase: 'lobby',               // lobby | picking | playing | over
       round: 1,
       settings: { theme: 'animals', customTheme: '', turnSeconds: 60 },
-      players: [{ id: 'p0', key: myKey, name: hostName, color: cleanGear(store.get('hb-gear')).color || COLORS[0], style: cleanGear(store.get('hb-gear')).style || 'plain', online: true, isHost: true, playing: false }],
+      players: [{ id: 'p0', key: myKey, name: eggName(hostName), color: cleanGear(store.get('hb-gear')).color || COLORS[0], style: cleanGear(store.get('hb-gear')).style || 'plain', online: true, isHost: true, playing: false }],
       nextId: 1,
       pickFor: {},                  // pickerId -> targetId
       words: {},                    // targetId -> word
@@ -435,7 +435,7 @@
 
   function hostHello(key, msg) {
     const st = host.state;
-    const name = cleanName(msg.name) || 'Player';
+    const name = eggName(cleanName(msg.name) || 'Player');
     let p = H.byKey(key);
     if (p && p.online) { hostSendTo(p); return; } // already seated: just send them the game again
     if (!p) {
@@ -1535,7 +1535,6 @@
       customTimer = setTimeout(() => send({ a: 'settings', settings: { customTheme: el.value } }), 400);
     }
     if (el.id === 'code') { const c = cleanCode(el.value); if (c !== el.value) el.value = c; }
-    if (el.id === 'name') { const e = eggName(el.value.trim()); if (e !== el.value.trim()) el.value = e; }
     if (el.id === 'notes') store.set(notesKey(), el.value);
   });
   root.addEventListener('keydown', (e) => {
